@@ -1,11 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LifeMonkColors, LifeMonkSpacing } from '@/constants/lifemonk-theme';
+import { getProfile, type AuthProfile } from '@/src/services/auth';
 
 type ViewState = 'main' | 'payments' | 'privacy' | 'notifications' | 'help';
+
+/** Map backend subscription_type (basic, premium, ultra) to display label. */
+const PLAN_LABELS: Record<string, string> = {
+  basic: 'Basic',
+  premium: 'Premium',
+  ultra: 'Ultra',
+};
+
+function planDisplayName(subscriptionType: string | undefined): string {
+  if (!subscriptionType) return '—';
+  const key = subscriptionType.toLowerCase();
+  return PLAN_LABELS[key] ?? subscriptionType;
+}
 
 interface MoreScreenProps {
   onBack: () => void;
@@ -15,9 +29,30 @@ interface MoreScreenProps {
 export function MoreScreen({ onBack, onLogout }: MoreScreenProps) {
   const insets = useSafeAreaInsets();
   const [view, setView] = useState<ViewState>('main');
+  const [profile, setProfile] = useState<AuthProfile | null>(null);
+  const [planLoading, setPlanLoading] = useState(true);
+
+  const loadProfile = useCallback(async () => {
+    setPlanLoading(true);
+    try {
+      const data = await getProfile();
+      setProfile(data);
+    } catch {
+      setProfile(null);
+    } finally {
+      setPlanLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (view === 'main') loadProfile();
+  }, [view, loadProfile]);
 
   const headerTitle = view === 'main' ? 'Settings & More' : view.charAt(0).toUpperCase() + view.slice(1);
   const onHeaderBack = view === 'main' ? onBack : () => setView('main');
+  const planName = planDisplayName(profile?.subscription_type);
+
+  const scrollContentPadding = { paddingBottom: Math.max(40, insets.bottom + 100) };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 16 }]}>
@@ -30,22 +65,37 @@ export function MoreScreen({ onBack, onLogout }: MoreScreenProps) {
       </View>
 
       {view === 'main' && (
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.scrollContent, scrollContentPadding]}
+          showsVerticalScrollIndicator={true}
+          bounces={true}
+          alwaysBounceVertical={false}
+        >
           <Text style={styles.sectionLabel}>Your Current Plan</Text>
           <View style={styles.planCard}>
-            <View style={styles.planRow}>
-              <View>
-                <Text style={styles.planTitle}>Pro Elite</Text>
-                <View style={styles.planBadge}>
-                  <Ionicons name="checkmark-circle" size={16} color={LifeMonkColors.accentPrimary} />
-                  <Text style={styles.planMeta}>Active until Dec 2026</Text>
-                </View>
+            {planLoading ? (
+              <View style={styles.planLoadingWrap}>
+                <ActivityIndicator size="small" color="#FFF" />
+                <Text style={styles.planMeta}>Loading plan…</Text>
               </View>
-              <Ionicons name="flash" size={40} color={LifeMonkColors.accentPrimary} />
-            </View>
-            <Pressable style={styles.manageBtn}>
-              <Text style={styles.manageBtnText}>MANAGE SUBSCRIPTION</Text>
-            </Pressable>
+            ) : (
+              <>
+                <View style={styles.planRow}>
+                  <View>
+                    <Text style={styles.planTitle}>{planName}</Text>
+                    <View style={styles.planBadge}>
+                      <Ionicons name="checkmark-circle" size={16} color={LifeMonkColors.accentPrimary} />
+                      <Text style={styles.planMeta}>Active</Text>
+                    </View>
+                  </View>
+                  <Ionicons name="flash" size={40} color={LifeMonkColors.accentPrimary} />
+                </View>
+                <Pressable style={styles.manageBtn}>
+                  <Text style={styles.manageBtnText}>MANAGE SUBSCRIPTION</Text>
+                </Pressable>
+              </>
+            )}
           </View>
 
           <Text style={styles.sectionLabel}>Account Settings</Text>
@@ -62,7 +112,11 @@ export function MoreScreen({ onBack, onLogout }: MoreScreenProps) {
       )}
 
       {view === 'payments' && (
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.scrollContent, scrollContentPadding]}
+          showsVerticalScrollIndicator={true}
+        >
           <PaymentItem icon="phone-portrait-outline" label="UPI (Google Pay, PhonePe)" color="#6366f1" />
           <PaymentItem icon="card-outline" label="Credit Card" color="#3b82f6" />
           <PaymentItem icon="card-outline" label="Debit Card" color="#10b981" />
@@ -71,7 +125,11 @@ export function MoreScreen({ onBack, onLogout }: MoreScreenProps) {
       )}
 
       {view === 'privacy' && (
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.scrollContent, scrollContentPadding]}
+          showsVerticalScrollIndicator={true}
+        >
           <View style={styles.infoCard}>
             <View style={styles.infoTitleRow}>
             <Ionicons name="lock-closed-outline" size={18} color="#10b981" />
@@ -94,7 +152,11 @@ export function MoreScreen({ onBack, onLogout }: MoreScreenProps) {
       )}
 
       {view === 'notifications' && (
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.scrollContent, scrollContentPadding]}
+          showsVerticalScrollIndicator={true}
+        >
           <NotifItem title="Upcoming Workshop" desc="Live 'Monk Mode' Masterclass starts today at 5:00 PM." time="2h ago" active />
           <NotifItem title="Weekly Report" desc="Your productivity increased by 15% this week! View details." time="1d ago" />
           <NotifItem title="New Feature" desc="Deep Work music now available in Focus mode." time="3d ago" />
@@ -102,7 +164,11 @@ export function MoreScreen({ onBack, onLogout }: MoreScreenProps) {
       )}
 
       {view === 'help' && (
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.scrollContent, scrollContentPadding]}
+          showsVerticalScrollIndicator={true}
+        >
           <FAQItem question="What is Monk Mode?" answer="Monk Mode is a period of deep focus and discipline where you commit to eliminating distractions and working towards a specific goal." />
           <FAQItem question="How do I earn tokens?" answer="Tokens are earned by completing daily focus sessions, finishing challenges, and maintaining your streaks." />
           <FAQItem question="Can I use Life Monk offline?" answer="Yes! Most features like the timer and journal work offline. Data will sync once you connect to the internet." />
@@ -179,6 +245,7 @@ function FAQItem({ question, answer }: { question: string; answer: string }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: 'rgba(255,255,255,0.1)' },
   header: {
+    flexShrink: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -196,8 +263,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerTitle: { fontSize: 20, fontWeight: '800', color: LifeMonkColors.text },
-  scroll: { flex: 1 },
-  scrollContent: { padding: LifeMonkSpacing.contentPadding, paddingBottom: 40 },
+  scroll: { flex: 1, minHeight: 0 },
+  scrollContent: { padding: LifeMonkSpacing.contentPadding, flexGrow: 0 },
   sectionLabel: { fontSize: 10, fontWeight: '800', color: LifeMonkColors.textMuted, letterSpacing: 2, marginBottom: 16, paddingHorizontal: 8 },
   planCard: {
     backgroundColor: '#111',
@@ -205,6 +272,7 @@ const styles = StyleSheet.create({
     padding: 32,
     marginBottom: 24,
   },
+  planLoadingWrap: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 16 },
   planRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
   planTitle: { fontSize: 28, fontWeight: '800', color: '#FFF', letterSpacing: -0.5 },
   planBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
