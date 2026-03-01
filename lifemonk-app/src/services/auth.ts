@@ -4,9 +4,7 @@
  */
 
 import * as SecureStore from 'expo-secure-store';
-
-const XANO_COURSES_URL = 'https://x8ki-letl-twmt.n7.xano.io/api:j1bkW6GC';
-const XANO_AUTH_URL = 'https://x8ki-letl-twmt.n7.xano.io/api:oks0Dp98';
+import { getXanoAuthBaseUrl } from './config';
 
 // Simple auth state listener for logout events
 type AuthListener = () => void;
@@ -31,8 +29,9 @@ export async function signup(data: {
   grade_level: number;
   subscription_type: string;
 }) {
-  const SIGNUP_URL = 'https://x8ki-letl-twmt.n7.xano.io/api:oks0Dp98/create_student';
-  const LOGIN_URL = 'https://x8ki-letl-twmt.n7.xano.io/api:oks0Dp98/auth/login';
+  const base = getXanoAuthBaseUrl();
+  const SIGNUP_URL = `${base}/create_student`;
+  const LOGIN_URL = `${base}/auth/login`;
 
   // Step 1: Create the student
   // Xano may expect grade_level as string (e.g. "5") or as a grade_id from a grades table; send string to match common API validation.
@@ -73,7 +72,8 @@ export async function signup(data: {
 }
 
 export async function login(email: string, password: string) {
-  const res = await fetch(XANO_AUTH_URL + '/auth/login', {
+  const base = getXanoAuthBaseUrl();
+  const res = await fetch(base + '/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -124,7 +124,8 @@ export async function getCurrentStudent(): Promise<{
     const token = await getToken();
     if (!token) return null;
 
-    const res = await fetch(XANO_AUTH_URL + '/auth/me', {
+    const base = getXanoAuthBaseUrl();
+    const res = await fetch(base + '/auth/me', {
       headers: { Authorization: 'Bearer ' + token },
     });
 

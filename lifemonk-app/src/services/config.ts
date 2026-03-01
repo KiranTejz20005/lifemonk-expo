@@ -7,6 +7,7 @@ type Extra = {
   STRAPI_BASE_URL?: string;
   STRAPI_API_TOKEN?: string;
   XANO_BASE_URL?: string;
+  XANO_AUTH_URL?: string;
 };
 
 function getExtra(): Extra {
@@ -25,4 +26,8 @@ export function getStrapiApiToken(): string | null {
 
 export function getXanoBaseUrl(): string {
   return getExtra().XANO_BASE_URL ?? process.env.EXPO_PUBLIC_XANO_BASE_URL ?? process.env.XANO_BASE_URL ?? '';
+}
+
+export function getXanoAuthBaseUrl(): string {
+  return getExtra().XANO_AUTH_URL ?? process.env.EXPO_PUBLIC_XANO_AUTH_URL ?? process.env.XANO_AUTH_URL ?? getXanoBaseUrl();
 }

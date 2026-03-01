@@ -11,7 +11,6 @@ import { getCurrentStudent, getToken, getUserId } from './auth';
 
 const AUTH_TOKEN_KEY = 'auth_token';
 const USER_KEY = 'lifemonk_user';
-const XANO_COURSES_URL = 'https://x8ki-letl-twmt.n7.xano.io/api:j1bkW6GC';
 
 /**
  * Returns the current user_id from SecureStore (set during login/signup).
@@ -585,9 +584,10 @@ export async function getCoursesForCurrentStudent() {
     const student = await getCurrentStudent();
     if (!student) return [];
 
+    const base = getXanoBaseUrl();
     const token = await getToken();
     const res = await fetch(
-      XANO_COURSES_URL + '/get_user_courses?user_id=' + student.id,
+      base + '/get_user_courses?user_id=' + student.id,
       {
         headers: {
           'Content-Type': 'application/json',
