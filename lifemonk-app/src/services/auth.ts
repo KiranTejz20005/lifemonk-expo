@@ -31,27 +31,28 @@ export async function signup(data: {
   subscription_type: string;
 }) {
   const base = getXanoAuthBaseUrl();
-  const SIGNUP_URL = `${base}/create_student`;
+  const CREATE_STUDENT_URL = `${base}/create_student`;
   const LOGIN_URL = `${base}/auth/login`;
 
-  // Step 1: Create the student
-  // Xano may expect grade_level as string (e.g. "5") or as a grade_id from a grades table; send string to match common API validation.
-  const signupRes = await fetch(SIGNUP_URL, {
+  // Step 1: POST to create student
+  const createRes = await fetch(CREATE_STUDENT_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       name: data.name,
       email: data.email,
       password: data.password,
-      grade_level: String(data.grade_level),
+      grade_level: data.grade_level,
       subscription_type: data.subscription_type,
     }),
   });
-  const signupJson = await signupRes.json();
-  console.log('Signup response:', JSON.stringify(signupJson));
-  if (!signupRes.ok) throw new Error(signupJson.message || 'Signup failed');
+  const text = await createRes.text();
+  console.log('[Signup] create_student status:', createRes.status);
+  console.log('[Signup] create_student response:', text);
+  const signupJson = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  if (!createRes.ok) throw new Error((signupJson as { message?: string }).message || 'Signup failed');
 
-  // Step 2: Login to get the auth token
+  // Step 2: POST to login to get token
   const loginRes = await fetch(LOGIN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -60,27 +61,32 @@ export async function signup(data: {
       password: data.password,
     }),
   });
-  const loginJson = await loginRes.json();
-  console.log('Login after signup response:', JSON.stringify(loginJson));
+  const loginJson = (await loginRes.json()) as { authToken?: string; id?: number; name?: string; message?: string };
   if (!loginRes.ok) throw new Error(loginJson.message || 'Login failed after signup');
+
+  // Step 3: Save token and user from login response
+  if (loginJson.authToken != null && loginJson.id != null) {
+    await saveSession(loginJson.authToken, String(loginJson.id), loginJson.name);
+  }
 
   return {
     authToken: loginJson.authToken,
-    id: signupJson.id,
-    name: signupJson.name,
-    email: signupJson.email,
+    id: signupJson.id ?? loginJson.id,
+    name: signupJson.name ?? loginJson.name,
+    email: data.email,
   };
 }
 
 export async function login(email: string, password: string) {
-  const base = getXanoAuthBaseUrl();
-  const res = await fetch(base + '/auth/login', {
+  const url = 'https://x8ki-letl-twmt.n7.xano.io/api:oks0Dp98/auth/login';
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.message || 'Login failed');
+  await SecureStore.setItemAsync('auth_token', String(json.authToken));
   return json;
 }
 
@@ -95,11 +101,11 @@ export async function saveSession(
   await AsyncStorage.setItem('lifemonk_auth_token', String(token));
   await SecureStore.setItemAsync('auth_token', String(token));
   await SecureStore.setItemAsync('user_id', String(userId));
-  if (name) await SecureStore.setItemAsync('user_name', name);
+  if (name) await SecureStore.setItemAsync('user_name', String(name));
   if (rememberMe) {
     await SecureStore.deleteItemAsync(SESSION_ONLY_KEY);
   } else {
-    await SecureStore.setItemAsync(SESSION_ONLY_KEY, '1');
+    await SecureStore.setItemAsync(SESSION_ONLY_KEY, String('1'));
   }
 }
 

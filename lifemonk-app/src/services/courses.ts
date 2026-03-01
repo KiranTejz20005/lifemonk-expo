@@ -274,8 +274,8 @@ function handleXanoError(status: number, endpoint: string): Error {
 // These helpers remain for backward compatibility with existing code.
 
 export async function saveAuthToken(token: string): Promise<void> {
-  await SecureStore.setItemAsync(AUTH_TOKEN_KEY, token);
-  await AsyncStorage.setItem('lifemonk_auth_token', token);
+  await SecureStore.setItemAsync(AUTH_TOKEN_KEY, String(token));
+  await AsyncStorage.setItem('lifemonk_auth_token', String(token));
 }
 
 export async function getAuthToken(): Promise<string | null> {
@@ -517,7 +517,7 @@ export async function fetchQuizByChapter(chapterDocumentId: string): Promise<Qui
 
 // --- Xano Auth (use Auth group base) ---
 
-const XANO_AUTH_BASE = 'https://x8ki-letl-twmt.n7.xano.io/api:lzV5OYCY';
+const XANO_AUTH_BASE = 'https://x8ki-letl-twmt.n7.xano.io/api:oks0Dp98';
 const XANO_COURSES_BASE = 'https://x8ki-letl-twmt.n7.xano.io/api:j1bkW6GC';
 console.log('Auth URL:', XANO_AUTH_BASE);
 console.log('Courses URL:', XANO_COURSES_BASE);
@@ -530,18 +530,48 @@ export async function studentSignup(
   schoolId: number,
   subscriptionType = 'basic'
 ): Promise<AuthResponse> {
-  const url = `${XANO_AUTH_BASE}/auth/signup`;
   try {
-    const res = await fetch(url, {
+    // Step 1: Create student
+    const createRes = await fetch(`${XANO_AUTH_BASE}/create_student`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password, grade_id: gradeId, school_id: schoolId, subscription_type: subscriptionType }),
+      body: JSON.stringify({
+        name,
+        email,
+        password,
+        grade_level: gradeId,
+        subscription_type: subscriptionType,
+      }),
     });
-    const data = await res.json().catch(() => ({})) as AuthResponse & { message?: string };
-    if (!res.ok) throw new Error(data.message ?? `Signup failed: ${res.status}`);
-    await saveAuthToken(data.authToken);
-    await saveUser(data.user);
-    return data;
+    const createText = await createRes.text();
+    console.log('[studentSignup] create status:', createRes.status);
+    console.log('[studentSignup] create response:', createText);
+    const createData = createText ? JSON.parse(createText) : {};
+    if (!createRes.ok) throw new Error(createData.message ?? 'Signup failed');
+
+    // Step 2: Login to get token
+    const loginRes = await fetch(`${XANO_AUTH_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const loginData = await loginRes.json();
+    console.log('[studentSignup] login status:', loginRes.status);
+    console.log('[studentSignup] login response:', JSON.stringify(loginData));
+    if (!loginRes.ok) throw new Error(loginData.message ?? 'Login after signup failed');
+
+    await saveAuthToken(loginData.authToken);
+    return {
+      authToken: loginData.authToken,
+      user: {
+        id: loginData.id ?? createData.id,
+        name: loginData.name ?? createData.name ?? name,
+        email,
+        grade_id: loginData.grade_id ?? gradeId,
+        school_id: loginData.school_id ?? 0,
+        subscription_type: loginData.subscription_type ?? subscriptionType,
+      },
+    };
   } catch (e) {
     throw new Error(e instanceof Error ? e.message : 'Signup failed. Please try again.');
   }
@@ -560,8 +590,18 @@ export async function studentLogin(email: string, password: string): Promise<Aut
     const data = await res.json().catch(() => ({})) as AuthResponse & { message?: string };
     console.log('Login response:', JSON.stringify(data));
     if (!res.ok) throw new Error(data.message ?? 'Invalid email or password');
-    await saveAuthToken(data.authToken);
-    await saveUser(data.user);
+    await saveAuthToken(String(data.authToken));
+
+    const meRes = await fetch(
+      'https://x8ki-letl-twmt.n7.xano.io/api:oks0Dp98/auth/me',
+      { headers: { Authorization: 'Bearer ' + data.authToken } }
+    );
+    const meData = await meRes.json();
+    if (meRes.ok && meData.name) {
+      await SecureStore.setItemAsync('user_name', String(meData.name));
+      await SecureStore.setItemAsync('user_id', String(meData.id));
+    }
+
     return data;
   } catch (e) {
     throw new Error(e instanceof Error ? e.message : 'Login failed. Please try again.');
