@@ -1,2 +1,3 @@
 export const STRAPI_URL = 'http://localhost:1337';
-export const XANO_URL = 'https://x8ki-letl-twmt.n7.xano.io/api:j1bkW6GC';
+// Set via env when building Strapi admin, or replace with your Xano base URL. Do not commit real URLs.
+export const XANO_URL = typeof process !== 'undefined' && process.env?.XANO_BASE_URL ? process.env.XANO_BASE_URL : '';

@@ -24,5 +24,5 @@ export function getStrapiApiToken(): string | null {
 }
 
 export function getXanoBaseUrl(): string {
-  return getExtra().XANO_BASE_URL ?? process.env.EXPO_PUBLIC_XANO_BASE_URL ?? process.env.XANO_BASE_URL ?? 'https://x8ki-letl-twmt.n7.xano.io/api:j1bkW6GC';
+  return getExtra().XANO_BASE_URL ?? process.env.EXPO_PUBLIC_XANO_BASE_URL ?? process.env.XANO_BASE_URL ?? '';
 }
