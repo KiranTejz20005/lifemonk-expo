@@ -1,6 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 import { BreathingScreen } from '@/components/screens/BreathingScreen';
 import { ChallengesScreen } from '@/components/screens/ChallengesScreen';
@@ -38,31 +39,43 @@ export default function BytesTabScreen() {
     >
       <View style={{ flex: 1 }}>
         {screenState === 'main' && (
-          <HomeScreen
-            userName={userName}
-            activeTab={homeTab}
-            onTabChange={setHomeTab}
-            onProfileClick={() => setScreenState('profile')}
-            onJournalClick={() => setScreenState('journal')}
-            onChallengesClick={() => setScreenState('challenges')}
-            onBreathingClick={() => setScreenState('breathing')}
-            onFocusClick={() => setScreenState('focus')}
-          />
+          <Animated.View key="main" entering={FadeIn.duration(300)} exiting={FadeOut.duration(300)} style={{ flex: 1 }}>
+            <HomeScreen
+              userName={userName}
+              activeTab={homeTab}
+              onTabChange={setHomeTab}
+              onProfileClick={() => setScreenState('profile')}
+              onJournalClick={() => setScreenState('journal')}
+              onChallengesClick={() => setScreenState('challenges')}
+              onBreathingClick={() => setScreenState('breathing')}
+              onFocusClick={() => setScreenState('focus')}
+            />
+          </Animated.View>
         )}
         {screenState === 'profile' && (
-          <ProfileScreen onBack={() => setScreenState('main')} />
+          <Animated.View key="profile" entering={FadeIn.duration(300)} exiting={FadeOut.duration(300)} style={{ flex: 1 }}>
+            <ProfileScreen onBack={() => setScreenState('main')} />
+          </Animated.View>
         )}
         {screenState === 'journal' && (
-          <JournalScreen onBack={() => setScreenState('main')} />
+          <Animated.View key="journal" entering={FadeIn.duration(300)} exiting={FadeOut.duration(300)} style={{ flex: 1 }}>
+            <JournalScreen onBack={() => setScreenState('main')} />
+          </Animated.View>
         )}
         {screenState === 'challenges' && (
-          <ChallengesScreen onBack={() => setScreenState('main')} />
+          <Animated.View key="challenges" entering={FadeIn.duration(300)} exiting={FadeOut.duration(300)} style={{ flex: 1 }}>
+            <ChallengesScreen onBack={() => setScreenState('main')} />
+          </Animated.View>
         )}
         {screenState === 'breathing' && (
-          <BreathingScreen onBack={() => setScreenState('main')} />
+          <Animated.View key="breathing" entering={FadeIn.duration(300)} exiting={FadeOut.duration(300)} style={{ flex: 1 }}>
+            <BreathingScreen onBack={() => setScreenState('main')} />
+          </Animated.View>
         )}
         {screenState === 'focus' && (
-          <FocusScreen onBack={() => setScreenState('main')} />
+          <Animated.View key="focus" entering={FadeIn.duration(300)} exiting={FadeOut.duration(300)} style={{ flex: 1 }}>
+            <FocusScreen onBack={() => setScreenState('main')} />
+          </Animated.View>
         )}
       </View>
     </LinearGradient>

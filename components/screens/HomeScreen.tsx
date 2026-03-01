@@ -1,14 +1,15 @@
-import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeIn, FadeOut, useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { LifeMonkColors, LifeMonkSpacing, LifeMonkTypography } from '@/constants/lifemonk-theme';
 import { InspiredCarousel } from '@/components/views/InspiredCarousel';
 import { LearningPathsView } from '@/components/views/LearningPathsView';
 import { PracticeView } from '@/components/views/PracticeView';
+import { LifeMonkColors, LifeMonkSpacing, LifeMonkTypography } from '@/constants/lifemonk-theme';
 
 const TABS = ['Learn', 'Monk Mode', 'Practice'] as const;
 type Tab = (typeof TABS)[number];
@@ -45,6 +46,15 @@ export function HomeScreen({
   const [timeLeft, setTimeLeft] = useState(25 * 60);
   const [isActive, setIsActive] = useState(false);
 
+  const [segmentWidth, setSegmentWidth] = useState(0);
+  const activeIndex = TABS.indexOf(activeTab as Tab);
+  const indicatorStyle = useAnimatedStyle(() => {
+    const tabW = segmentWidth > 0 ? (segmentWidth - 8) / TABS.length : 0;
+    const targetX = activeIndex * tabW;
+
+    return { transform: [{ translateX: targetX }] };
+  }, [activeIndex, segmentWidth]);
+
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | null = null;
     if (isActive) {
@@ -70,37 +80,54 @@ export function HomeScreen({
   };
 
   if (activeTab === 'Learn') {
-    return <LearningPathsView onBack={() => onTabChange('Monk Mode')} />;
+    return (
+      <Animated.View key="learn" entering={FadeIn.duration(300)} exiting={FadeOut.duration(300)} style={styles.container}>
+        <LearningPathsView onBack={() => onTabChange('Monk Mode')} />
+      </Animated.View>
+    );
   }
   if (activeTab === 'Practice') {
-    return <PracticeView onBack={() => onTabChange('Monk Mode')} userName={userName} />;
+    return (
+      <Animated.View key="practice" entering={FadeIn.duration(300)} exiting={FadeOut.duration(300)} style={styles.container}>
+        <PracticeView onBack={() => onTabChange('Monk Mode')} userName={userName} />
+      </Animated.View>
+    );
   }
 
   return (
-    <View style={styles.container}>
+    <Animated.View key="monk" entering={FadeIn.duration(300)} exiting={FadeOut.duration(300)} style={styles.container}>
       {activeTab === 'Monk Mode' && (
         <View style={[styles.headerWrap, { paddingTop: insets.top + 12 }]}>
           <View style={styles.logoRow}>
             <Text style={styles.logoText}>Life Monk</Text>
           </View>
           <View style={styles.header}>
-          <Pressable onPress={onProfileClick} style={styles.profileBtn}>
-            <Image
-              source={{ uri: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=100&h=100' }}
-              style={StyleSheet.absoluteFill}
-            />
-          </Pressable>
-          <View style={styles.segmentWrap}>
-            {TABS.map((tab) => (
-              <Pressable
-                key={tab}
-                onPress={() => onTabChange(tab)}
-                style={[styles.segmentItem, activeTab === tab && styles.segmentItemActive]}
-              >
-                <Text style={[styles.segmentText, activeTab === tab && styles.segmentTextActive]}>{tab}</Text>
-              </Pressable>
-            ))}
-          </View>
+            <Pressable onPress={onProfileClick} style={styles.profileBtn}>
+              <Image
+                source={{ uri: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=100&h=100' }}
+                style={StyleSheet.absoluteFill}
+              />
+            </Pressable>
+            <View style={styles.segmentWrap} onLayout={(e) => setSegmentWidth(e.nativeEvent.layout.width)}>
+              {segmentWidth > 0 && (
+                <Animated.View
+                  style={[
+                    StyleSheet.absoluteFill,
+                    { width: (segmentWidth - 8) / TABS.length, backgroundColor: '#FFF', borderRadius: 20, margin: 4, height: 'auto' },
+                    indicatorStyle
+                  ]}
+                />
+              )}
+              {TABS.map((tab) => (
+                <Pressable
+                  key={tab}
+                  onPress={() => onTabChange(tab)}
+                  style={styles.segmentItem}
+                >
+                  <Text style={[styles.segmentText, activeTab === tab && styles.segmentTextActive]}>{tab}</Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
         </View>
       )}
@@ -182,7 +209,7 @@ export function HomeScreen({
           </>
         )}
       </ScrollView>
-    </View>
+    </Animated.View>
   );
 }
 
