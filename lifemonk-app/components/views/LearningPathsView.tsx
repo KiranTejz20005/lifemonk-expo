@@ -6,15 +6,15 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 
 import { LifeMonkColors, LifeMonkSpacing } from '@/constants/lifemonk-theme';
 import {
-  DEFAULT_USER_ID,
-  DEFAULT_USER_TYPE,
-  fetchCourses,
-  getUserCourses,
+  getCategories,
+  getHomeScreenCourses,
+  type Category,
   type Course,
   type Chapter,
-  type UserCourseEntry,
+  type MergedCourse,
 } from '@/src/services/courses';
 
+import { CourseProgressScreen } from '@/components/screens/CourseProgressScreen';
 import { ChapterDetailScreen } from './ChapterDetailScreen';
 import type { CourseDetailData } from './CourseDetailView';
 import { CourseDetailView } from './CourseDetailView';
@@ -37,16 +37,14 @@ function getGradientForCategory(category: string): [string, string] {
 
 function PathCard({
   course,
-  enrollment,
   onPress,
 }: {
-  course: Course;
-  enrollment: UserCourseEntry | undefined;
+  course: MergedCourse;
   onPress: () => void;
 }) {
   const hasCover = Boolean(course.cover_image_url);
-  const progress = enrollment?.progress_percent ?? 0;
-  const isEnrolled = enrollment?.enrolled ?? false;
+  const progress = course.progress_percent ?? 0;
+  const isEnrolled = course.enrolled ?? false;
   const showStar = isEnrolled && progress >= 100;
 
   return (
@@ -100,10 +98,13 @@ function SkeletonCard() {
   );
 }
 
+const ALL_CATEGORIES = 'All';
+
 export function LearningPathsView({ onBack }: { onBack?: () => void }) {
   const [selectedCourse, setSelectedCourse] = useState<CourseDetailData | null>(null);
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [userCourses, setUserCourses] = useState<UserCourseEntry[]>([]);
+  const [courses, setCourses] = useState<MergedCourse[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>(ALL_CATEGORIES);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -111,12 +112,12 @@ export function LearningPathsView({ onBack }: { onBack?: () => void }) {
     setLoading(true);
     setError(null);
     try {
-      const [coursesRes, userCoursesRes] = await Promise.all([
-        fetchCourses(),
-        getUserCourses(DEFAULT_USER_ID),
+      const [merged, cats] = await Promise.all([
+        getHomeScreenCourses(),
+        getCategories().catch(() => []),
       ]);
-      setCourses(coursesRes);
-      setUserCourses(Array.isArray(userCoursesRes) ? userCoursesRes : []);
+      setCourses(merged);
+      setCategories(cats);
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Failed to load courses';
       setError(message);
@@ -130,16 +131,7 @@ export function LearningPathsView({ onBack }: { onBack?: () => void }) {
     load();
   }, [load]);
 
-  const enrollmentMap = React.useMemo(() => {
-    const m: Record<string, UserCourseEntry> = {};
-    userCourses.forEach((uc) => {
-      m[uc.strapi_course_id] = uc;
-    });
-    return m;
-  }, [userCourses]);
-
-  // Visibility: all → everyone; premium_ultra → hide from school; ultra_only → only ultra. For now userType = 'ultra' → show all.
-  const userType = DEFAULT_USER_TYPE;
+  const userType = 'ultra';
   const visibleCourses = React.useMemo(() => {
     return courses.filter((c) => {
       const v = c.user_type_visibility || 'all';
@@ -150,28 +142,50 @@ export function LearningPathsView({ onBack }: { onBack?: () => void }) {
     });
   }, [courses, userType]);
 
+  const filteredByCategory = React.useMemo(() => {
+    if (selectedCategory === ALL_CATEGORIES) return visibleCourses;
+    return visibleCourses.filter((c) => (c.category || 'Uncategorized') === selectedCategory);
+  }, [visibleCourses, selectedCategory]);
+
   const grouped = React.useMemo(() => {
-    const acc: Record<string, Course[]> = {};
-    visibleCourses.forEach((course) => {
+    const acc: Record<string, MergedCourse[]> = {};
+    filteredByCategory.forEach((course) => {
       const cat = course.category || 'Other';
       if (!acc[cat]) acc[cat] = [];
       acc[cat].push(course);
     });
     return acc;
-  }, [visibleCourses]);
+  }, [filteredByCategory]);
 
-  const handleCourseClick = (course: Course) => {
-    const enrollment = enrollmentMap[course.documentId];
+  const handleCourseClick = (course: MergedCourse) => {
     setSelectedCourse({
       course,
-      enrollment: enrollment ?? null,
-      userId: DEFAULT_USER_ID,
+      enrollment: {
+        enrolled: course.enrolled,
+        progress_percent: course.progress_percent,
+        strapi_course_id: course.documentId,
+      },
+      userId: 0,
     });
   };
 
   const [selectedChapter, setSelectedChapter] = useState<{ course: Course; chapter: Chapter } | null>(null);
   const [certificateView, setCertificateView] = useState<{ course: Course; date: string } | null>(null);
+  const [progressCourse, setProgressCourse] = useState<Course | null>(null);
   const [courseDetailKey, setCourseDetailKey] = useState(0);
+
+  if (progressCourse) {
+    return (
+      <CourseProgressScreen
+        course={progressCourse}
+        onBack={() => setProgressCourse(null)}
+        onClaimCertificate={(course, date) => {
+          setProgressCourse(null);
+          setCertificateView({ course, date });
+        }}
+      />
+    );
+  }
 
   if (certificateView) {
     return (
@@ -188,7 +202,6 @@ export function LearningPathsView({ onBack }: { onBack?: () => void }) {
       <ChapterDetailScreen
         course={selectedChapter.course}
         chapter={selectedChapter.chapter}
-        userId={DEFAULT_USER_ID}
         onBack={() => setSelectedChapter(null)}
         onComplete={() => {
           setSelectedChapter(null);
@@ -208,6 +221,7 @@ export function LearningPathsView({ onBack }: { onBack?: () => void }) {
         onEnrolled={() => load()}
         onOpenChapter={(course, chapter) => setSelectedChapter({ course, chapter })}
         onShowCertificate={(course, date) => setCertificateView({ course, date })}
+        onShowProgress={(course) => setProgressCourse(course)}
       />
     );
   }
@@ -221,6 +235,35 @@ export function LearningPathsView({ onBack }: { onBack?: () => void }) {
         <Text style={styles.headerTitle}>Learning Paths</Text>
         <View style={styles.placeholder} />
       </View>
+
+      {!loading && !error && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.categoryTabs}
+          contentContainerStyle={styles.categoryTabsContent}
+        >
+          <Pressable
+            style={[styles.categoryChip, selectedCategory === ALL_CATEGORIES && styles.categoryChipActive]}
+            onPress={() => setSelectedCategory(ALL_CATEGORIES)}
+          >
+            <Text style={[styles.categoryChipText, selectedCategory === ALL_CATEGORIES && styles.categoryChipTextActive]}>
+              {ALL_CATEGORIES}
+            </Text>
+          </Pressable>
+          {categories.map((cat) => (
+            <Pressable
+              key={cat.documentId}
+              style={[styles.categoryChip, selectedCategory === cat.name && styles.categoryChipActive]}
+              onPress={() => setSelectedCategory(cat.name)}
+            >
+              <Text style={[styles.categoryChipText, selectedCategory === cat.name && styles.categoryChipTextActive]}>
+                {cat.name}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
 
       {loading ? (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
@@ -250,33 +293,40 @@ export function LearningPathsView({ onBack }: { onBack?: () => void }) {
       ) : error ? (
         <View style={styles.errorWrap}>
           <Text style={styles.errorText}>{error}</Text>
+          <Text style={styles.errorSubtext}>If this persists, check your connection.</Text>
           <Pressable style={styles.retryBtn} onPress={load}>
             <Text style={styles.retryBtnText}>Try again</Text>
           </Pressable>
         </View>
       ) : (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-          {Object.entries(grouped).map(([categoryName, list], index) => {
-            if (list.length === 0) return null;
-            return (
-              <React.Fragment key={categoryName}>
-                <View style={[styles.section, index > 0 ? { marginTop: 32 } : undefined]}>
-                  <Text style={styles.sectionHeading}>{categoryName}</Text>
-                </View>
-                <View style={styles.grid}>
-                  {list.map((course) => (
-                    <View key={course.documentId} style={styles.cardWrap}>
-                      <PathCard
-                        course={course}
-                        enrollment={enrollmentMap[course.documentId]}
-                        onPress={() => handleCourseClick(course)}
-                      />
-                    </View>
-                  ))}
-                </View>
-              </React.Fragment>
-            );
-          })}
+          {Object.keys(grouped).length === 0 ? (
+            <View style={styles.emptyWrap}>
+              <Text style={styles.emptyText}>No courses yet.</Text>
+              <Text style={styles.emptySubtext}>Check back later or try another category.</Text>
+            </View>
+          ) : (
+            Object.entries(grouped).map(([categoryName, list], index) => {
+              if (list.length === 0) return null;
+              return (
+                <React.Fragment key={categoryName}>
+                  <View style={[styles.section, index > 0 ? { marginTop: 32 } : undefined]}>
+                    <Text style={styles.sectionHeading}>{categoryName}</Text>
+                  </View>
+                  <View style={styles.grid}>
+                    {list.map((course) => (
+                      <View key={course.documentId} style={styles.cardWrap}>
+                        <PathCard
+                          course={course}
+                          onPress={() => handleCourseClick(course)}
+                        />
+                      </View>
+                    ))}
+                  </View>
+                </React.Fragment>
+              );
+            })
+          )}
         </ScrollView>
       )}
     </View>
@@ -377,6 +427,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#6B7280',
     textAlign: 'center',
+    marginBottom: 8,
+  },
+  errorSubtext: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    textAlign: 'center',
     marginBottom: 16,
   },
   retryBtn: {
@@ -386,4 +442,19 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   retryBtnText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
+  categoryTabs: { maxHeight: 48, marginBottom: 8 },
+  categoryTabsContent: { paddingHorizontal: LifeMonkSpacing.contentPadding, gap: 8, paddingVertical: 8 },
+  categoryChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.06)',
+    marginRight: 8,
+  },
+  categoryChipActive: { backgroundColor: LifeMonkColors.accentPrimary },
+  categoryChipText: { fontSize: 14, fontWeight: '600', color: '#374151' },
+  categoryChipTextActive: { color: '#FFF' },
+  emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 48 },
+  emptyText: { fontSize: 18, fontWeight: '700', color: LifeMonkColors.text, marginBottom: 8 },
+  emptySubtext: { fontSize: 14, color: '#6B7280' },
 });
