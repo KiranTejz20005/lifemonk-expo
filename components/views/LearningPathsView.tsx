@@ -7,6 +7,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 import { LifeMonkColors, LifeMonkSpacing } from '@/constants/lifemonk-theme';
 import {
   DEFAULT_USER_ID,
+  DEFAULT_USER_TYPE,
   fetchCourses,
   getUserCourses,
   type Course,
@@ -19,14 +20,20 @@ import type { CourseDetailData } from './CourseDetailView';
 import { CourseDetailView } from './CourseDetailView';
 import { CertificateView } from './CertificateView';
 
-const CATEGORY_LABELS: Record<string, string> = {
-  foundation: 'Foundations',
-  academic: 'Academic',
-  career: 'Career',
-  customized: 'Advanced',
+// Gradient colors by category name (fallback when no cover_image_url)
+const CATEGORY_GRADIENTS: Record<string, [string, string]> = {
+  Academic: ['#3B82F6', '#1D4ED8'],
+  Career: ['#10B981', '#059669'],
+  Foundation: ['#8B5CF6', '#6D28D9'],
+  Foundations: ['#8B5CF6', '#6D28D9'],
+  Advanced: ['#F59E0B', '#D97706'],
+  Uncategorized: ['#6B7280', '#4B5563'],
 };
+const DEFAULT_GRADIENT: [string, string] = ['#4C6FFF', '#7B61FF'];
 
-const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1519817650390-64a93db51149?auto=format&fit=crop&q=80&w=400';
+function getGradientForCategory(category: string): [string, string] {
+  return CATEGORY_GRADIENTS[category] ?? DEFAULT_GRADIENT;
+}
 
 function PathCard({
   course,
@@ -37,14 +44,21 @@ function PathCard({
   enrollment: UserCourseEntry | undefined;
   onPress: () => void;
 }) {
-  const imageUri = course.cover_image || FALLBACK_IMAGE;
+  const hasCover = Boolean(course.cover_image_url);
   const progress = enrollment?.progress_percent ?? 0;
   const isEnrolled = enrollment?.enrolled ?? false;
   const showStar = isEnrolled && progress >= 100;
 
   return (
     <Pressable onPress={onPress} style={styles.pathCard}>
-      <Image source={{ uri: imageUri }} style={StyleSheet.absoluteFill} />
+      {hasCover ? (
+        <Image source={{ uri: course.cover_image_url! }} style={StyleSheet.absoluteFill} />
+      ) : (
+        <LinearGradient
+          colors={[...getGradientForCategory(course.category), 'rgba(0,0,0,0.3)']}
+          style={StyleSheet.absoluteFill}
+        />
+      )}
       <LinearGradient
         colors={['rgba(0,0,0,0.6)', 'rgba(0,0,0,0.2)', 'transparent']}
         style={StyleSheet.absoluteFill}
@@ -124,17 +138,27 @@ export function LearningPathsView({ onBack }: { onBack?: () => void }) {
     return m;
   }, [userCourses]);
 
-  const grouped = React.useMemo(() => {
-    const groups: Record<string, Course[]> = {};
-    const order = ['foundation', 'academic', 'career', 'customized'];
-    order.forEach((cat) => (groups[cat] = []));
-    courses.forEach((c) => {
-      const cat = (c.category || 'foundation').toLowerCase();
-      if (!groups[cat]) groups[cat] = [];
-      groups[cat].push(c);
+  // Visibility: all → everyone; premium_ultra → hide from school; ultra_only → only ultra. For now userType = 'ultra' → show all.
+  const userType = DEFAULT_USER_TYPE;
+  const visibleCourses = React.useMemo(() => {
+    return courses.filter((c) => {
+      const v = c.user_type_visibility || 'all';
+      if (v === 'all') return true;
+      if (v === 'ultra_only') return userType === 'ultra';
+      if (v === 'premium_ultra') return userType !== 'school';
+      return true;
     });
-    return groups;
-  }, [courses]);
+  }, [courses, userType]);
+
+  const grouped = React.useMemo(() => {
+    const acc: Record<string, Course[]> = {};
+    visibleCourses.forEach((course) => {
+      const cat = course.category || 'Other';
+      if (!acc[cat]) acc[cat] = [];
+      acc[cat].push(course);
+    });
+    return acc;
+  }, [visibleCourses]);
 
   const handleCourseClick = (course: Course) => {
     const enrollment = enrollmentMap[course.documentId];
@@ -223,17 +247,21 @@ export function LearningPathsView({ onBack }: { onBack?: () => void }) {
             ))}
           </View>
         </ScrollView>
+      ) : error ? (
+        <View style={styles.errorWrap}>
+          <Text style={styles.errorText}>{error}</Text>
+          <Pressable style={styles.retryBtn} onPress={load}>
+            <Text style={styles.retryBtnText}>Try again</Text>
+          </Pressable>
+        </View>
       ) : (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-          {(['foundation', 'academic', 'career', 'customized'] as const).map((cat) => {
-            const list = grouped[cat] || [];
-            const label = CATEGORY_LABELS[cat] ?? cat;
+          {Object.entries(grouped).map(([categoryName, list], index) => {
             if (list.length === 0) return null;
             return (
-              <React.Fragment key={cat}>
-                <View style={[styles.section, list.length > 0 && cat !== 'foundation' ? { marginTop: 32 } : undefined]}>
-                  <Text style={styles.sectionLabel}>LIFE SKILLS</Text>
-                  <Text style={styles.sectionHeading}>{label}</Text>
+              <React.Fragment key={categoryName}>
+                <View style={[styles.section, index > 0 ? { marginTop: 32 } : undefined]}>
+                  <Text style={styles.sectionHeading}>{categoryName}</Text>
                 </View>
                 <View style={styles.grid}>
                   {list.map((course) => (
@@ -339,4 +367,23 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.5)',
     borderRadius: 4,
   },
+  errorWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  errorText: {
+    fontSize: 15,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  retryBtn: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    backgroundColor: LifeMonkColors.accentPrimary,
+    borderRadius: 12,
+  },
+  retryBtnText: { fontSize: 15, fontWeight: '700', color: '#FFF' },
 });

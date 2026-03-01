@@ -21,15 +21,20 @@ import {
   submitQuiz,
 } from '@/src/services/courses';
 
-function getYouTubeEmbedUrl(url: string): string {
-  const trimmed = (url || '').trim();
-  if (!trimmed) return '';
-  // Extract YouTube video ID from https://www.youtube.com/watch?v=VIDEO_ID or https://youtu.be/VIDEO_ID
-  const watchMatch = trimmed.match(/youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/);
-  if (watchMatch) return `https://www.youtube.com/embed/${watchMatch[1]}?playsinline=1`;
-  const shortMatch = trimmed.match(/youtu\.be\/([a-zA-Z0-9_-]+)/);
-  if (shortMatch) return `https://www.youtube.com/embed/${shortMatch[1]}?playsinline=1`;
-  return '';
+function getYouTubeId(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const u = url.trim();
+  if (!u) return null;
+  const patterns = [
+    /youtube\.com\/watch\?v=([^&]+)/,
+    /youtu\.be\/([^?]+)/,
+    /youtube\.com\/embed\/([^?]+)/,
+  ];
+  for (const p of patterns) {
+    const m = u.match(p);
+    if (m) return m[1];
+  }
+  return null;
 }
 
 export function ChapterDetailScreen({
@@ -125,7 +130,8 @@ function VideoChapter({
   onComplete: () => void;
   completing: boolean;
 }) {
-  const embedUrl = getYouTubeEmbedUrl((chapter.video_url || '').trim());
+  const videoId = getYouTubeId(chapter.video_url);
+  const embedUrl = videoId ? `https://www.youtube.com/embed/${videoId}?playsinline=1` : null;
 
   return (
     <View style={styles.container}>
@@ -147,7 +153,7 @@ function VideoChapter({
       ) : (
         <View style={styles.videoPlaceholder}>
           <Ionicons name="videocam-outline" size={48} color="#9CA3AF" />
-          <Text style={styles.placeholderText}>No video URL</Text>
+          <Text style={styles.placeholderText}>Video not available</Text>
         </View>
       )}
       <View style={styles.footer}>

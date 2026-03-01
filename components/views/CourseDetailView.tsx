@@ -114,11 +114,15 @@ export function CourseDetailView({
   const progressPercent = progress?.progress_percent ?? enrollment?.progress_percent ?? 0;
   const certificateIssued = progress?.certificate_issued ?? false;
   const canClaimCertificate = isEnrolled && progressPercent >= 100 && !certificateIssued;
+  const isComplete = isEnrolled && progressPercent >= 100;
   const chapterCompletedMap = new Map(
     (progress?.chapters ?? []).map((c) => [c.strapi_chapter_id, c.is_completed])
   );
 
-  const headerImg = course.cover_image || 'https://images.unsplash.com/photo-1519817650390-64a93db51149?auto=format&fit=crop&q=80&w=400';
+  const headerImg = course.cover_image_url || 'https://images.unsplash.com/photo-1519817650390-64a93db51149?auto=format&fit=crop&q=80&w=400';
+  const gradesLabel = course.grades?.length
+    ? `Grades ${Math.min(...course.grades)}–${Math.max(...course.grades)}`
+    : null;
 
   return (
     <View style={styles.container}>
@@ -165,9 +169,21 @@ export function CourseDetailView({
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>{course.title}</Text>
               <Text style={styles.sectionBody}>{course.short_description}</Text>
-              {course.estimated_hours != null && course.estimated_hours > 0 && (
-                <Text style={styles.estimatedHours}>Estimated: {course.estimated_hours} hours</Text>
-              )}
+              <View style={styles.badgesRow}>
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{course.category}</Text>
+                </View>
+                {gradesLabel != null && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{gradesLabel}</Text>
+                  </View>
+                )}
+                {course.estimated_hours != null && course.estimated_hours > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>Est. {course.estimated_hours} hrs</Text>
+                  </View>
+                )}
+              </View>
             </View>
             {isEnrolled && (
               <View style={styles.section}>
@@ -175,27 +191,34 @@ export function CourseDetailView({
                 <View style={styles.progressBarBg}>
                   <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
                 </View>
-                <Text style={styles.progressText}>{progressPercent}% complete</Text>
+                <Text style={styles.progressText}>{progressPercent}% Complete</Text>
+                {certificateIssued && (
+                  <View style={styles.certificateEarnedBadge}>
+                    <Text style={styles.certificateEarnedText}>🏆 Certificate Earned</Text>
+                  </View>
+                )}
               </View>
             )}
-            {(course.instructor_name || course.instructor_bio) && (
+            {course.instructor_name ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Instructor</Text>
                 <View style={styles.teachersRow}>
                   <View style={styles.teacher}>
-                    {course.instructor_image ? (
-                      <Image source={{ uri: course.instructor_image }} style={styles.teacherImg} />
+                    {course.instructor_image_url ? (
+                      <Image source={{ uri: course.instructor_image_url }} style={styles.teacherImg} />
                     ) : (
                       <View style={[styles.teacherImg, styles.teacherImgPlaceholder]}>
                         <Ionicons name="person" size={28} color="#9CA3AF" />
                       </View>
                     )}
-                    <Text style={styles.teacherName}>{course.instructor_name || 'Instructor'}</Text>
-                    <Text style={styles.teacherUni} numberOfLines={3}>{course.instructor_bio}</Text>
+                    <Text style={styles.teacherName}>{course.instructor_name}</Text>
+                    {course.instructor_bio ? (
+                      <Text style={styles.teacherUni} numberOfLines={3}>{course.instructor_bio}</Text>
+                    ) : null}
                   </View>
                 </View>
               </View>
-            )}
+            ) : null}
           </>
         )}
 
@@ -270,7 +293,22 @@ export function CourseDetailView({
             style={styles.enrollBottom}
           >
             <Text style={styles.enrollBottomSub}>Start your journey</Text>
-            <Text style={styles.enrollBottomTitle}>ENROL NOW</Text>
+            <Text style={styles.enrollBottomTitle}>ENROLL NOW</Text>
+          </LinearGradient>
+        </Pressable>
+      )}
+
+      {isEnrolled && !isComplete && (
+        <Pressable
+          style={styles.stickyBottom}
+          onPress={() => setActiveTab('Chapters')}
+        >
+          <LinearGradient
+            colors={['#4C6FFF', '#7B61FF']}
+            style={styles.enrollBottom}
+          >
+            <Text style={styles.enrollBottomSub}>Continue where you left off</Text>
+            <Text style={styles.enrollBottomTitle}>CONTINUE LEARNING</Text>
           </LinearGradient>
         </Pressable>
       )}
@@ -293,13 +331,16 @@ export function CourseDetailView({
         </Pressable>
       )}
 
-      {isEnrolled && progressPercent >= 100 && certificateIssued && (
-        <View style={styles.stickyBottom}>
+      {isEnrolled && certificateIssued && (
+        <Pressable
+          style={styles.stickyBottom}
+          onPress={() => onShowCertificate?.(course, new Date().toLocaleDateString())}
+        >
           <View style={styles.certificateBadge}>
             <Ionicons name="ribbon" size={24} color="#F59E0B" />
-            <Text style={styles.certificateBadgeText}>Certificate earned</Text>
+            <Text style={styles.certificateBadgeText}>View Certificate</Text>
           </View>
-        </View>
+        </Pressable>
       )}
     </View>
   );
@@ -363,7 +404,25 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   sectionBody: { fontSize: 14, color: '#374151', lineHeight: 22 },
-  estimatedHours: { fontSize: 13, color: '#6B7280', marginTop: 4 },
+  badgesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  badge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#EEF2FF',
+  },
+  badgeText: { fontSize: 12, fontWeight: '600', color: '#4C6FFF' },
+  certificateEarnedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#FFFBEB',
+    borderRadius: 10,
+    alignSelf: 'flex-start',
+  },
+  certificateEarnedText: { fontSize: 14, fontWeight: '700', color: '#B45309' },
   progressBarBg: {
     height: 8,
     backgroundColor: '#E5E7EB',
