@@ -6,13 +6,15 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 
 import { LifeMonkColors, LifeMonkSpacing } from '@/constants/lifemonk-theme';
 import {
+  fetchCourses,
   getCategories,
-  getHomeScreenCourses,
+  getCoursesForCurrentStudent,
   type Category,
   type Course,
   type Chapter,
   type MergedCourse,
 } from '@/src/services/courses';
+import { getCurrentStudent } from '@/src/services/auth';
 
 import { CourseProgressScreen } from '@/components/screens/CourseProgressScreen';
 import { ChapterDetailScreen } from './ChapterDetailScreen';
@@ -107,15 +109,90 @@ export function LearningPathsView({ onBack }: { onBack?: () => void }) {
   const [selectedCategory, setSelectedCategory] = useState<string>(ALL_CATEGORIES);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [noCoursesForGrade, setNoCoursesForGrade] = useState(false);
+  const [userType, setUserType] = useState('ultra');
+
+  const extractStrapiDocumentIds = (entry: Record<string, unknown>): string[] => {
+    const direct = entry.strapi_document_id;
+    if (typeof direct === 'string' && direct.trim()) return [direct.trim()];
+
+    const many = entry.strapi_document_ids;
+    if (Array.isArray(many)) {
+      return many
+        .filter((value): value is string => typeof value === 'string')
+        .map((value) => value.trim())
+        .filter(Boolean);
+    }
+    if (typeof many === 'string') {
+      const t = many.trim();
+      if (!t) return [];
+      if (t.startsWith('[') && t.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(t) as unknown;
+          if (Array.isArray(parsed)) {
+            return parsed
+              .filter((value): value is string => typeof value === 'string')
+              .map((value) => value.trim())
+              .filter(Boolean);
+          }
+        } catch {
+          return [];
+        }
+      }
+      return [t];
+    }
+
+    const legacy = entry.strapi_course_id;
+    if (typeof legacy === 'string' && legacy.trim()) return [legacy.trim()];
+    return [];
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [merged, cats] = await Promise.all([
-        getHomeScreenCourses(),
+      const [studentCourses, strapiCourses, cats, student] = await Promise.all([
+        getCoursesForCurrentStudent(),
+        fetchCourses(),
         getCategories().catch(() => []),
+        getCurrentStudent(),
       ]);
+
+      setUserType(student?.subscription_type ?? 'ultra');
+
+      if (studentCourses.length === 0) {
+        setNoCoursesForGrade(true);
+        setCourses([]);
+        setCategories(cats);
+        return;
+      }
+
+      setNoCoursesForGrade(false);
+
+      const ids = new Set<string>();
+      for (const entry of studentCourses) {
+        if (!entry || typeof entry !== 'object') continue;
+        const extracted = extractStrapiDocumentIds(entry as Record<string, unknown>);
+        extracted.forEach((id) => ids.add(id));
+      }
+
+      const merged: MergedCourse[] = strapiCourses
+        .filter((course) => ids.has(course.documentId))
+        .map((course) => {
+          const match = studentCourses.find((entry) => {
+            if (!entry || typeof entry !== 'object') return false;
+            const extracted = extractStrapiDocumentIds(entry as Record<string, unknown>);
+            return extracted.includes(course.documentId);
+          }) as { enrolled?: boolean; status?: string; progress_percent?: number } | undefined;
+
+          return {
+            ...course,
+            enrolled: match?.enrolled ?? true,
+            status: match?.status ?? 'active',
+            progress_percent: match?.progress_percent ?? 0,
+          };
+        });
+
       setCourses(merged);
       setCategories(cats);
     } catch (e) {
@@ -131,7 +208,6 @@ export function LearningPathsView({ onBack }: { onBack?: () => void }) {
     load();
   }, [load]);
 
-  const userType = 'ultra';
   const visibleCourses = React.useMemo(() => {
     return courses.filter((c) => {
       const v = c.user_type_visibility || 'all';
@@ -302,7 +378,9 @@ export function LearningPathsView({ onBack }: { onBack?: () => void }) {
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
           {Object.keys(grouped).length === 0 ? (
             <View style={styles.emptyWrap}>
-              <Text style={styles.emptyText}>No courses yet.</Text>
+              <Text style={styles.emptyText}>
+                {noCoursesForGrade ? 'No courses available for your grade yet' : 'No courses yet.'}
+              </Text>
               <Text style={styles.emptySubtext}>Check back later or try another category.</Text>
             </View>
           ) : (

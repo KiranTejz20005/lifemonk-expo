@@ -100,6 +100,29 @@ export async function getUserName(): Promise<string | null> {
   return await SecureStore.getItemAsync('user_name');
 }
 
+export async function getCurrentStudent(): Promise<{
+  id: number;
+  grade_level: number;
+  subscription_type: string;
+  name: string;
+  email: string;
+} | null> {
+  try {
+    const token = await getToken();
+    if (!token) return null;
+
+    const res = await fetch(XANO_AUTH_URL + '/auth/me', {
+      headers: { Authorization: 'Bearer ' + token },
+    });
+
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json;
+  } catch {
+    return null;
+  }
+}
+
 export async function logout(): Promise<void> {
   await SecureStore.deleteItemAsync('auth_token');
   await SecureStore.deleteItemAsync('user_id');

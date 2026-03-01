@@ -7,10 +7,11 @@
 
 import * as SecureStore from 'expo-secure-store';
 import { getStrapiBaseUrl, getStrapiApiToken, getXanoBaseUrl } from './config';
-import { getToken, getUserId } from './auth';
+import { getCurrentStudent, getToken, getUserId } from './auth';
 
 const AUTH_TOKEN_KEY = 'auth_token';
 const USER_KEY = 'lifemonk_user';
+const XANO_COURSES_URL = 'https://x8ki-letl-twmt.n7.xano.io/api:j1bkW6GC';
 
 /**
  * Returns the current user_id from SecureStore (set during login/signup).
@@ -577,6 +578,28 @@ export async function getStudentCourses(): Promise<XanoCourseEntry[]> {
   if (!res.ok) throw handleXanoError(res.status, '/get_student_enrollments');
   const json = await res.json();
   return Array.isArray(json) ? json : (json as { courses?: XanoCourseEntry[] }).courses ?? json.data ?? [];
+}
+
+export async function getCoursesForCurrentStudent() {
+  try {
+    const student = await getCurrentStudent();
+    if (!student) return [];
+
+    const token = await getToken();
+    const res = await fetch(
+      XANO_COURSES_URL + '/get_user_courses?user_id=' + student.id,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: 'Bearer ' + token } : {}),
+        },
+      }
+    );
+    const json = await res.json();
+    return Array.isArray(json) ? json : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function enrollCourse(xanoCourseId: number): Promise<void> {
