@@ -78,8 +78,9 @@ export async function signup(data: {
 }
 
 export async function login(email: string, password: string) {
-  const url = 'https://x8ki-letl-twmt.n7.xano.io/api:oks0Dp98/auth/login';
-  const res = await fetch(url, {
+  const base = getXanoAuthBaseUrl();
+  if (!base) throw new Error('XANO_AUTH_URL is not configured. Set EXPO_PUBLIC_XANO_AUTH_URL in .env');
+  const res = await fetch(`${base}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),

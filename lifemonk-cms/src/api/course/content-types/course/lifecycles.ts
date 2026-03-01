@@ -11,7 +11,11 @@ export default {
 
 async function syncCourseToXano(course: any) {
   try {
-    const XANO_URL = 'https://x8ki-letl-twmt.n7.xano.io/api:j1bkW6GC';
+    const XANO_URL = process.env.XANO_BASE_URL || '';
+    if (!XANO_URL) {
+      console.log('[Strapi→Xano] XANO_BASE_URL not set, skipping sync');
+      return;
+    }
 
     const visibilityMap: any = {
       'all': 'public',

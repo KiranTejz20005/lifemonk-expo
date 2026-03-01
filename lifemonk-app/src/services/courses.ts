@@ -7,7 +7,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
-import { getStrapiBaseUrl, getStrapiApiToken, getXanoBaseUrl } from './config';
+import { getStrapiBaseUrl, getStrapiApiToken, getXanoAuthBaseUrl, getXanoBaseUrl } from './config';
 import { getCurrentStudent, getToken, getUserId } from './auth';
 
 const AUTH_TOKEN_KEY = 'auth_token';
@@ -515,12 +515,7 @@ export async function fetchQuizByChapter(chapterDocumentId: string): Promise<Qui
   }
 }
 
-// --- Xano Auth (use Auth group base) ---
-
-const XANO_AUTH_BASE = 'https://x8ki-letl-twmt.n7.xano.io/api:oks0Dp98';
-const XANO_COURSES_BASE = 'https://x8ki-letl-twmt.n7.xano.io/api:j1bkW6GC';
-console.log('Auth URL:', XANO_AUTH_BASE);
-console.log('Courses URL:', XANO_COURSES_BASE);
+// --- Xano Auth (base URLs from config / .env) ---
 
 export async function studentSignup(
   name: string,
@@ -531,8 +526,10 @@ export async function studentSignup(
   subscriptionType = 'basic'
 ): Promise<AuthResponse> {
   try {
+    const authBase = getXanoAuthBaseUrl();
+    if (!authBase) throw new Error('XANO_AUTH_URL not configured. Set EXPO_PUBLIC_XANO_AUTH_URL in .env');
     // Step 1: Create student
-    const createRes = await fetch(`${XANO_AUTH_BASE}/create_student`, {
+    const createRes = await fetch(`${authBase}/create_student`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -550,7 +547,7 @@ export async function studentSignup(
     if (!createRes.ok) throw new Error(createData.message ?? 'Signup failed');
 
     // Step 2: Login to get token
-    const loginRes = await fetch(`${XANO_AUTH_BASE}/auth/login`, {
+    const loginRes = await fetch(`${authBase}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -578,10 +575,10 @@ export async function studentSignup(
 }
 
 export async function studentLogin(email: string, password: string): Promise<AuthResponse> {
-  const url = `${XANO_AUTH_BASE}/auth/login`;
-  console.log('Login URL:', url);
+  const authBase = getXanoAuthBaseUrl();
+  if (!authBase) throw new Error('XANO_AUTH_URL not configured. Set EXPO_PUBLIC_XANO_AUTH_URL in .env');
   try {
-    const res = await fetch(url, {
+    const res = await fetch(`${authBase}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -592,10 +589,9 @@ export async function studentLogin(email: string, password: string): Promise<Aut
     if (!res.ok) throw new Error(data.message ?? 'Invalid email or password');
     await saveAuthToken(String(data.authToken));
 
-    const meRes = await fetch(
-      'https://x8ki-letl-twmt.n7.xano.io/api:oks0Dp98/auth/me',
-      { headers: { Authorization: 'Bearer ' + data.authToken } }
-    );
+    const meRes = await fetch(`${authBase}/auth/me`, {
+      headers: { Authorization: 'Bearer ' + data.authToken },
+    });
     const meData = await meRes.json();
     if (meRes.ok && meData.name) {
       await SecureStore.setItemAsync('user_name', String(meData.name));
@@ -612,7 +608,9 @@ export async function getStudentProfile(): Promise<StudentProfile> {
   let token = await AsyncStorage.getItem('lifemonk_auth_token');
   if (!token) token = await getToken();
   if (!token) throw new Error('AUTH_REQUIRED');
-  const res = await fetch(`${XANO_AUTH_BASE}/auth/me`, {
+  const authBase = getXanoAuthBaseUrl();
+  if (!authBase) throw new Error('XANO_AUTH_URL not configured. Set EXPO_PUBLIC_XANO_AUTH_URL in .env');
+  const res = await fetch(`${authBase}/auth/me`, {
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw handleXanoError(res.status, '/auth/me');
@@ -626,21 +624,15 @@ export async function studentLogout(): Promise<void> {
 // --- Xano Course API (use Courses group base) ---
 
 export async function getStudentCourses(): Promise<XanoCourseEntry[]> {
-  const url = `${XANO_COURSES_BASE}/get_user_courses`;
+  const coursesBase = getXanoBaseUrl();
+  const url = `${coursesBase}/get_user_courses`;
   try {
     let token = await AsyncStorage.getItem('lifemonk_auth_token');
     if (!token) token = await getToken();
-    if (!token) {
-      console.log('Xano URL:', url);
-      console.log('Token:', 'missing');
-      return [];
-    }
-    console.log('Xano URL:', url);
-    console.log('Token:', token ? 'exists' : 'missing');
+    if (!token) return [];
     const res = await fetch(url, {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     });
-    console.log('Xano status:', res.status);
     if (res.status === 401) {
       await AsyncStorage.removeItem('lifemonk_auth_token');
       await AsyncStorage.removeItem('lifemonk_user');
@@ -659,7 +651,8 @@ export async function getCoursesForCurrentStudent() {
     let token = await AsyncStorage.getItem('lifemonk_auth_token');
     if (!token) token = await getToken();
     if (!token) return [];
-    const res = await fetch(`${XANO_COURSES_BASE}/get_user_courses`, {
+    const coursesBase = getXanoBaseUrl();
+    const res = await fetch(`${coursesBase}/get_user_courses`, {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return [];
@@ -701,7 +694,8 @@ export async function getXanoCatalogCourses(): Promise<MergedCourse[]> {
   if (!student) return getHomeScreenCourses().catch(() => []);
 
   try {
-    const res = await fetch(`${XANO_COURSES_BASE}/get_user_courses`, { headers });
+    const coursesBase = getXanoBaseUrl();
+    const res = await fetch(`${coursesBase}/get_user_courses`, { headers });
     if (!res.ok) {
       if (res.status === 404) return getHomeScreenCourses().catch(() => []);
       throw handleXanoError(res.status, '/get_user_courses');
@@ -783,7 +777,8 @@ export async function getXanoCatalogCourses(): Promise<MergedCourse[]> {
 
 export async function enrollCourse(xanoCourseId: number): Promise<void> {
   const headers = await xanoHeaders(true);
-  const res = await fetch(`${XANO_COURSES_BASE}/enroll_course`, {
+  const coursesBase = getXanoBaseUrl();
+  const res = await fetch(`${coursesBase}/enroll_course`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ course_id: xanoCourseId }),
@@ -797,8 +792,9 @@ export async function enrollCourse(xanoCourseId: number): Promise<void> {
 
 export async function getCourseProgress(xanoCourseId: number): Promise<XanoCourseProgress | null> {
   const headers = await xanoHeaders(true);
+  const coursesBase = getXanoBaseUrl();
   try {
-    const res = await fetch(`${XANO_COURSES_BASE}/get_course_progress?course_id=${xanoCourseId}`, { headers });
+    const res = await fetch(`${coursesBase}/get_course_progress?course_id=${xanoCourseId}`, { headers });
     if (!res.ok) return null;
     return (await res.json()) as XanoCourseProgress;
   } catch {
@@ -812,7 +808,8 @@ export async function completeChapter(
   quizScore?: number
 ): Promise<void> {
   const headers = await xanoHeaders(true);
-  const res = await fetch(`${XANO_COURSES_BASE}/complete_chapter`, {
+  const coursesBase = getXanoBaseUrl();
+  const res = await fetch(`${coursesBase}/complete_chapter`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -833,7 +830,8 @@ export async function submitQuizAttempt(
   correctAnswers: number
 ): Promise<{ score: number; passed: boolean; pass_score: number }> {
   const headers = await xanoHeaders(true);
-  const res = await fetch(`${XANO_COURSES_BASE}/submit_quiz_attempt`, {
+  const coursesBase = getXanoBaseUrl();
+  const res = await fetch(`${coursesBase}/submit_quiz_attempt`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -851,7 +849,8 @@ export async function submitQuizAttempt(
 
 export async function issueCertificate(xanoCourseId: number): Promise<void> {
   const headers = await xanoHeaders(true);
-  const res = await fetch(`${XANO_COURSES_BASE}/issue_certificate`, {
+  const coursesBase = getXanoBaseUrl();
+  const res = await fetch(`${coursesBase}/issue_certificate`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ course_id: xanoCourseId }),
