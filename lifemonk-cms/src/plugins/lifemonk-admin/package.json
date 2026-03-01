@@ -1,0 +1,13 @@
+{
+  "name": "lifemonk-admin",
+  "version": "1.0.0",
+  "description": "LifeMonk CMS Plugin",
+  "strapi": {
+    "name": "lifemonk-admin",
+    "displayName": "LifeMonk CMS",
+    "description": "Course Management System",
+    "kind": "plugin"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

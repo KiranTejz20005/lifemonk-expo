@@ -1,0 +1,42 @@
+{
+  "kind": "collectionType",
+  "collectionName": "courses",
+  "info": {
+    "singularName": "course",
+    "pluralName": "courses",
+    "displayName": "Course"
+  },
+  "options": { "draftAndPublish": true },
+  "attributes": {
+    "title": { "type": "string", "required": true },
+    "short_description": { "type": "text" },
+    "description": { "type": "richtext" },
+    "cover_image": { "type": "media", "multiple": false, "allowedTypes": ["images"] },
+    "intro_video_url": { "type": "string" },
+    "category": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "api::category.category",
+      "inversedBy": "courses"
+    },
+    "user_type_visibility": {
+      "type": "enumeration",
+      "enum": ["all", "premium_ultra", "ultra_only"],
+      "default": "all"
+    },
+    "instructor_name": { "type": "string" },
+    "instructor_image": { "type": "media", "multiple": false, "allowedTypes": ["images"] },
+    "instructor_bio": { "type": "text" },
+    "grades": { "type": "json" },
+    "assigned_schools": { "type": "json" },
+    "is_active": { "type": "boolean", "default": true },
+    "order": { "type": "integer", "default": 0 },
+    "estimated_hours": { "type": "integer" },
+    "chapters": {
+      "type": "relation",
+      "relation": "oneToMany",
+      "target": "api::chapter.chapter",
+      "mappedBy": "course"
+    }
+  }
+}
