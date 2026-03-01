@@ -17,7 +17,7 @@ function getExtra(): Extra {
 }
 
 export function getStrapiBaseUrl(): string {
-  return getExtra().STRAPI_BASE_URL ?? process.env.EXPO_PUBLIC_STRAPI_BASE_URL ?? process.env.STRAPI_BASE_URL ?? 'http://192.168.1.5:1337';
+  return getExtra().STRAPI_BASE_URL ?? process.env.EXPO_PUBLIC_STRAPI_BASE_URL ?? process.env.STRAPI_BASE_URL ?? 'http://192.168.1.22:1337';
 }
 
 export function getStrapiApiToken(): string | null {
