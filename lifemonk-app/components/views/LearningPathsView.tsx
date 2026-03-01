@@ -6,9 +6,8 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 
 import { LifeMonkColors, LifeMonkSpacing } from '@/constants/lifemonk-theme';
 import {
-  fetchCourses,
+  getHomeScreenCourses,
   getCategories,
-  getCoursesForCurrentStudent,
   type Category,
   type Course,
   type Chapter,
@@ -27,6 +26,7 @@ const CATEGORY_GRADIENTS: Record<string, [string, string]> = {
   Academic: ['#3B82F6', '#1D4ED8'],
   Career: ['#10B981', '#059669'],
   Foundation: ['#8B5CF6', '#6D28D9'],
+  foundation: ['#8B5CF6', '#6D28D9'],
   Foundations: ['#8B5CF6', '#6D28D9'],
   Advanced: ['#F59E0B', '#D97706'],
   Uncategorized: ['#6B7280', '#4B5563'],
@@ -73,13 +73,21 @@ function PathCard({
         </View>
       )}
       <View style={styles.pathCardContent}>
+        <Text style={styles.pathCardCategory} numberOfLines={1}>
+          {course.category || 'General'}
+        </Text>
         <Text style={styles.pathCardTitle} numberOfLines={2}>
           {course.title}
         </Text>
         {isEnrolled && (
-          <View style={styles.progressBarWrap}>
-            <View style={styles.progressBarBg}>
-              <View style={[styles.progressBarFill, { width: `${progress}%` }]} />
+          <View style={styles.enrolledRow}>
+            <View style={styles.enrolledBadge}>
+              <Text style={styles.enrolledBadgeText}>Enrolled</Text>
+            </View>
+            <View style={styles.progressBarWrap}>
+              <View style={styles.progressBarBg}>
+                <View style={[styles.progressBarFill, { width: `${progress}%` }]} />
+              </View>
             </View>
           </View>
         )}
@@ -112,92 +120,41 @@ export function LearningPathsView({ onBack }: { onBack?: () => void }) {
   const [noCoursesForGrade, setNoCoursesForGrade] = useState(false);
   const [userType, setUserType] = useState('ultra');
 
-  const extractStrapiDocumentIds = (entry: Record<string, unknown>): string[] => {
-    const direct = entry.strapi_document_id;
-    if (typeof direct === 'string' && direct.trim()) return [direct.trim()];
-
-    const many = entry.strapi_document_ids;
-    if (Array.isArray(many)) {
-      return many
-        .filter((value): value is string => typeof value === 'string')
-        .map((value) => value.trim())
-        .filter(Boolean);
-    }
-    if (typeof many === 'string') {
-      const t = many.trim();
-      if (!t) return [];
-      if (t.startsWith('[') && t.endsWith(']')) {
-        try {
-          const parsed = JSON.parse(t) as unknown;
-          if (Array.isArray(parsed)) {
-            return parsed
-              .filter((value): value is string => typeof value === 'string')
-              .map((value) => value.trim())
-              .filter(Boolean);
-          }
-        } catch {
-          return [];
-        }
-      }
-      return [t];
-    }
-
-    const legacy = entry.strapi_course_id;
-    if (typeof legacy === 'string' && legacy.trim()) return [legacy.trim()];
-    return [];
-  };
-
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [studentCourses, strapiCourses, cats, student] = await Promise.all([
-        getCoursesForCurrentStudent(),
-        fetchCourses(),
+      const data = await getHomeScreenCourses();
+      console.log('Total courses loaded:', data.length);
+
+      const [strapiCats, student] = await Promise.all([
         getCategories().catch(() => []),
         getCurrentStudent(),
       ]);
 
       setUserType(student?.subscription_type ?? 'ultra');
+      setNoCoursesForGrade(data.length === 0);
+      setCourses(data);
 
-      if (studentCourses.length === 0) {
-        setNoCoursesForGrade(true);
-        setCourses([]);
-        setCategories(cats);
-        return;
-      }
-
-      setNoCoursesForGrade(false);
-
-      const ids = new Set<string>();
-      for (const entry of studentCourses) {
-        if (!entry || typeof entry !== 'object') continue;
-        const extracted = extractStrapiDocumentIds(entry as Record<string, unknown>);
-        extracted.forEach((id) => ids.add(id));
-      }
-
-      const merged: MergedCourse[] = strapiCourses
-        .filter((course) => ids.has(course.documentId))
-        .map((course) => {
-          const match = studentCourses.find((entry) => {
-            if (!entry || typeof entry !== 'object') return false;
-            const extracted = extractStrapiDocumentIds(entry as Record<string, unknown>);
-            return extracted.includes(course.documentId);
-          }) as { enrolled?: boolean; status?: string; progress_percent?: number } | undefined;
-
-          return {
-            ...course,
-            enrolled: match?.enrolled ?? true,
-            status: match?.status ?? 'active',
-            progress_percent: match?.progress_percent ?? 0,
-          };
-        });
-
-      setCourses(merged);
-      setCategories(cats);
+      const categoryNames = new Set(data.map((c) => c.category || 'Uncategorized'));
+      const derivedCats: Category[] = strapiCats.length > 0
+        ? strapiCats
+        : Array.from(categoryNames).map((name, i) => ({
+            id: i + 1,
+            documentId: name,
+            name,
+            description: null,
+            visibility: 'public',
+            image_url: null,
+            order: i,
+            is_active: true,
+          }));
+      setCategories(derivedCats);
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Failed to load courses';
       setError(message);
+      setCourses([]);
+      setCategories([]);
       Alert.alert('Error', message);
     } finally {
       setLoading(false);
@@ -457,13 +414,27 @@ const styles = StyleSheet.create({
     bottom: 0,
     padding: 20,
   },
+  pathCardCategory: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.85)',
+    marginBottom: 2,
+  },
   pathCardTitle: {
     fontSize: 17,
     fontWeight: '800',
     color: '#FFF',
     maxWidth: 140,
   },
-  progressBarWrap: { marginTop: 8 },
+  enrolledRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
+  enrolledBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: 'rgba(34,197,94,0.9)',
+  },
+  enrolledBadgeText: { fontSize: 11, fontWeight: '700', color: '#FFF' },
+  progressBarWrap: { flex: 1, marginTop: 0 },
   progressBarBg: {
     height: 4,
     backgroundColor: 'rgba(255,255,255,0.3)',
