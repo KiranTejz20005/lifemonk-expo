@@ -18,7 +18,7 @@ import type { Course, Chapter, Quiz } from '@/src/services/courses';
 import {
   completeChapter,
   fetchQuizByChapter,
-  submitQuiz,
+  submitQuizAttempt,
 } from '@/src/services/courses';
 
 function getYouTubeId(url: string | null | undefined): string | null {
@@ -40,37 +40,44 @@ function getYouTubeId(url: string | null | undefined): string | null {
 export function ChapterDetailScreen({
   course,
   chapter,
-  userId,
   onBack,
   onComplete,
 }: {
   course: Course;
   chapter: Chapter;
-  userId: number;
   onBack: () => void;
   onComplete: () => void;
 }) {
+  const xanoChapterId = chapter.xanoChapterId ?? 0;
+  const xanoCourseId = course.xanoCourseId ?? 0;
   const [completing, setCompleting] = useState(false);
 
-  const handleMarkComplete = useCallback(async () => {
-    setCompleting(true);
-    try {
-      await completeChapter(userId, course.documentId, chapter.documentId, chapter.order);
-      Alert.alert('Done', 'Chapter marked complete.');
-      onComplete();
-    } catch (e) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Could not complete chapter');
-    } finally {
-      setCompleting(false);
-    }
-  }, [userId, course.documentId, chapter.documentId, chapter.order, onComplete]);
+  const handleMarkComplete = useCallback(
+    async (watchTimeSeconds = 0, quizScore?: number) => {
+      if (!xanoChapterId) {
+        Alert.alert('Error', 'Chapter not synced to course.');
+        return;
+      }
+      setCompleting(true);
+      try {
+        await completeChapter(xanoChapterId, watchTimeSeconds, quizScore);
+        Alert.alert('Done', 'Chapter marked complete.');
+        onComplete();
+      } catch (e) {
+        Alert.alert('Error', e instanceof Error ? e.message : 'Could not complete chapter');
+      } finally {
+        setCompleting(false);
+      }
+    },
+    [xanoChapterId, onComplete]
+  );
 
   if (chapter.chapter_type === 'video') {
     return (
       <VideoChapter
         chapter={chapter}
         onBack={onBack}
-        onComplete={handleMarkComplete}
+        onComplete={(watchSec) => handleMarkComplete(watchSec, undefined)}
         completing={completing}
       />
     );
@@ -80,7 +87,7 @@ export function ChapterDetailScreen({
       <TextChapter
         chapter={chapter}
         onBack={onBack}
-        onComplete={handleMarkComplete}
+        onComplete={() => handleMarkComplete(0, undefined)}
         completing={completing}
       />
     );
@@ -90,7 +97,8 @@ export function ChapterDetailScreen({
       <QuizChapter
         course={course}
         chapter={chapter}
-        userId={userId}
+        xanoCourseId={xanoCourseId}
+        xanoChapterId={xanoChapterId}
         onBack={onBack}
         onComplete={onComplete}
       />
@@ -100,10 +108,9 @@ export function ChapterDetailScreen({
     return (
       <ActivityChapter
         chapter={chapter}
-        course={course}
-        userId={userId}
         onBack={onBack}
-        onComplete={onComplete}
+        onComplete={() => handleMarkComplete(0, undefined)}
+        completing={completing}
       />
     );
   }
@@ -127,11 +134,24 @@ function VideoChapter({
 }: {
   chapter: Chapter;
   onBack: () => void;
-  onComplete: () => void;
+  onComplete: (watchTimeSeconds: number) => void;
   completing: boolean;
 }) {
   const videoId = getYouTubeId(chapter.video_url);
   const embedUrl = videoId ? `https://www.youtube.com/embed/${videoId}?playsinline=1` : null;
+  const requiredSeconds = chapter.duration_minutes
+    ? Math.max(1, Math.floor(chapter.duration_minutes * 60 * 0.8))
+    : 30;
+  const [watchSeconds, setWatchSeconds] = useState(0);
+  const [timerActive, setTimerActive] = useState(true);
+
+  useEffect(() => {
+    if (!timerActive || watchSeconds >= requiredSeconds) return;
+    const t = setInterval(() => setWatchSeconds((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [timerActive, watchSeconds, requiredSeconds]);
+
+  const canComplete = watchSeconds >= requiredSeconds;
 
   return (
     <View style={styles.container}>
@@ -157,10 +177,15 @@ function VideoChapter({
         </View>
       )}
       <View style={styles.footer}>
+        {!canComplete && (
+          <Text style={styles.watchHint}>
+            Watch {requiredSeconds - watchSeconds}s more to unlock Mark Complete
+          </Text>
+        )}
         <Pressable
-          style={[styles.completeBtn, completing && styles.completeBtnDisabled]}
-          onPress={onComplete}
-          disabled={completing}
+          style={[styles.completeBtn, (completing || !canComplete) && styles.completeBtnDisabled]}
+          onPress={() => onComplete(watchSeconds)}
+          disabled={completing || !canComplete}
         >
           {completing ? (
             <ActivityIndicator color="#FFF" />
@@ -215,13 +240,15 @@ function TextChapter({
 function QuizChapter({
   course,
   chapter,
-  userId,
+  xanoCourseId,
+  xanoChapterId,
   onBack,
   onComplete,
 }: {
   course: Course;
   chapter: Chapter;
-  userId: number;
+  xanoCourseId: number;
+  xanoChapterId: number;
   onBack: () => void;
   onComplete: () => void;
 }) {
@@ -244,6 +271,7 @@ function QuizChapter({
   const questions = quiz?.questions ?? [];
   const current = questions[index];
   const isLast = index >= questions.length - 1;
+  const passScore = quiz?.pass_score ?? 70;
 
   const handleNext = () => {
     if (selected === null || !current) return;
@@ -267,17 +295,17 @@ function QuizChapter({
       (async () => {
         setSubmitting(true);
         try {
-          await submitQuiz(
-            userId,
-            course.documentId,
-            chapter.documentId,
+          const answersPayload = allAnswersSoFar.map((text, i) => ({ question_index: i, selected_answer: text }));
+          await submitQuizAttempt(
+            xanoChapterId,
+            xanoCourseId,
+            answersPayload,
             percent,
             total,
-            correctCount,
-            JSON.stringify(allAnswersSoFar)
+            correctCount
           );
-          if (percent >= 100) {
-            await completeChapter(userId, course.documentId, chapter.documentId, chapter.order, percent);
+          if (percent >= passScore) {
+            await completeChapter(xanoChapterId, 0, percent);
           }
         } catch (e) {
           Alert.alert('Error', e instanceof Error ? e.message : 'Failed to submit quiz');
@@ -302,15 +330,15 @@ function QuizChapter({
   }
 
   if (submitted && score !== null) {
-    const perfect = score >= 100;
+    const passed = score >= passScore;
     return (
       <View style={styles.container}>
         <View style={styles.resultWrap}>
-          <Text style={styles.resultEmoji}>{perfect ? '🎉' : '📝'}</Text>
-          <Text style={styles.resultTitle}>{perfect ? 'Perfect!' : 'Try Again'}</Text>
-          <Text style={styles.resultScore}>Score: {score}%</Text>
-          {!perfect && (
-            <Text style={styles.resultHint}>Complete with 100% to mark this chapter done.</Text>
+          <Text style={styles.resultEmoji}>{passed ? '🎉' : '📝'}</Text>
+          <Text style={styles.resultTitle}>{passed ? 'Passed!' : 'Try Again'}</Text>
+          <Text style={styles.resultScore}>Score: {score}% (pass: {passScore}%)</Text>
+          {!passed && (
+            <Text style={styles.resultHint}>Score {passScore}% or more to mark this chapter done.</Text>
           )}
           <Pressable style={styles.resultBtn} onPress={onComplete}>
             <Text style={styles.resultBtnText}>Back to course</Text>
@@ -373,16 +401,14 @@ function QuizChapter({
 
 function ActivityChapter({
   chapter,
-  course,
-  userId,
   onBack,
   onComplete,
+  completing,
 }: {
   chapter: Chapter;
-  course: Course;
-  userId: number;
   onBack: () => void;
   onComplete: () => void;
+  completing: boolean;
 }) {
   const [proofUri, setProofUri] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
@@ -411,10 +437,6 @@ function ActivityChapter({
     }
     setSubmitting(true);
     try {
-      // API expects a URL; in a real app you'd upload the image and get a URL
-      const proofUrl = proofUri ?? undefined;
-      await completeChapter(userId, course.documentId, chapter.documentId, chapter.order, undefined, proofUrl);
-      Alert.alert('Done', 'Activity submitted.');
       onComplete();
     } catch (e) {
       Alert.alert('Error', e instanceof Error ? e.message : 'Submission failed');
@@ -451,11 +473,11 @@ function ActivityChapter({
       </ScrollView>
       <View style={styles.footer}>
         <Pressable
-          style={[styles.completeBtn, submitting && styles.completeBtnDisabled]}
+          style={[styles.completeBtn, (submitting || completing) && styles.completeBtnDisabled]}
           onPress={handleSubmit}
-          disabled={submitting}
+          disabled={submitting || completing}
         >
-          {submitting ? (
+          {(submitting || completing) ? (
             <ActivityIndicator color="#FFF" />
           ) : (
             <Text style={styles.completeBtnText}>Submit</Text>
@@ -511,6 +533,7 @@ const styles = StyleSheet.create({
   },
   completeBtnDisabled: { opacity: 0.6 },
   completeBtnText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
+  watchHint: { fontSize: 13, color: 'rgba(255,255,255,0.9)', marginBottom: 8 },
   questionCount: { fontSize: 13, color: '#6B7280', marginBottom: 12 },
   questionText: { fontSize: 17, fontWeight: '700', color: '#111', marginBottom: 20 },
   optionsWrap: { gap: 12 },
