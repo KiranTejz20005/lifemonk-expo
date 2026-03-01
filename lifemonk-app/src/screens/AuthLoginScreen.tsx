@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as SecureStore from 'expo-secure-store';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -46,6 +47,8 @@ export function AuthLoginScreen({ onLoginSuccess, onGoToSignup }: Props) {
         result.user?.name,
         rememberMe
       );
+      await SecureStore.setItemAsync('user_name', String(result?.user?.name || result?.name || 'User'));
+      await SecureStore.setItemAsync('user_id', String(result?.user?.id || result?.id || ''));
       onLoginSuccess();
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Login failed';
