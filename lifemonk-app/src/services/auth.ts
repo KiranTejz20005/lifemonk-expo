@@ -164,7 +164,8 @@ export interface AuthProfile {
 export async function getProfile(): Promise<AuthProfile> {
   const token = await getToken();
   if (!token) throw new Error('Not signed in');
-  const res = await fetch(XANO_AUTH_URL + '/auth/me', {
+  const base = getXanoAuthBaseUrl();
+  const res = await fetch(base + '/auth/me', {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
   });
