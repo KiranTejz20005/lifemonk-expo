@@ -344,8 +344,8 @@ export async function fetchCourses(): Promise<Course[]> {
     return rawList.map((item: unknown) => {
       const course = unwrapItem<StrapiCourseRaw>(item);
       const categoryObj = course.category;
-      const categoryName = categoryObj && typeof categoryObj === 'object' && 'name' in categoryObj ? (categoryObj as StrapiCategory).name : undefined;
-      const categoryDocId = categoryObj && typeof categoryObj === 'object' && 'documentId' in categoryObj ? (categoryObj as StrapiCategory).documentId : undefined;
+      const categoryName = categoryObj && typeof categoryObj === 'object' && 'name' in categoryObj ? (categoryObj as StrapiCategory)?.name : undefined;
+      const categoryDocId = categoryObj && typeof categoryObj === 'object' && 'documentId' in categoryObj ? (categoryObj as StrapiCategory)?.documentId : undefined;
       const coverUrl = course.cover_image?.url;
       const instructorImg = course.instructor_image?.url;
       const grades = Array.isArray(course.grades) ? (course.grades as number[]) : [];
@@ -391,8 +391,8 @@ export async function getCourseById(strapiCourseId: string): Promise<Course | nu
     if (!item) return null;
     const course = unwrapItem<StrapiCourseRaw>(item);
     const categoryObj = course.category;
-    const categoryName = categoryObj && typeof categoryObj === 'object' && 'name' in categoryObj ? (categoryObj as StrapiCategory).name : undefined;
-    const categoryDocId = categoryObj && typeof categoryObj === 'object' && 'documentId' in categoryObj ? (categoryObj as StrapiCategory).documentId : undefined;
+    const categoryName = categoryObj && typeof categoryObj === 'object' && 'name' in categoryObj ? (categoryObj as StrapiCategory)?.name : undefined;
+    const categoryDocId = categoryObj && typeof categoryObj === 'object' && 'documentId' in categoryObj ? (categoryObj as StrapiCategory)?.documentId : undefined;
     const grades = Array.isArray(course.grades) ? (course.grades as number[]) : [];
     return {
       id: course.id ?? 0,
