@@ -5,10 +5,10 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { LifeMonkColors, LifeMonkSpacing } from '@/constants/lifemonk-theme';
-import type { Course, Chapter, CourseProgress } from '@/src/services/courses';
+import type { Course, Chapter, CourseProgress, MergedChapter } from '@/src/services/courses';
 import {
   enrollCourse,
-  fetchChaptersByCourse,
+  getCourseDetail,
   getCourseProgress,
   issueCertificate,
 } from '@/src/services/courses';
@@ -16,7 +16,7 @@ import {
 export interface CourseDetailData {
   course: Course;
   enrollment: { enrolled: boolean; progress_percent: number; strapi_course_id: string } | null;
-  userId: number;
+  userId?: number;
 }
 
 type TabType = 'Details' | 'Chapters' | 'Challenges';
@@ -34,17 +34,20 @@ export function CourseDetailView({
   onEnrolled,
   onOpenChapter,
   onShowCertificate,
+  onShowProgress,
 }: {
   courseDetail: CourseDetailData;
   onBack: () => void;
   onEnrolled?: () => void;
   onOpenChapter?: (course: Course, chapter: Chapter) => void;
   onShowCertificate?: (course: Course, date: string) => void;
+  onShowProgress?: (course: Course) => void;
 }) {
-  const { course, enrollment, userId } = courseDetail;
+  const { course, enrollment } = courseDetail;
+  const xanoCourseId = course.xanoCourseId ?? null;
   const [activeTab, setActiveTab] = useState<TabType>('Details');
   const [progress, setProgress] = useState<CourseProgress | null>(null);
-  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [chapters, setChapters] = useState<MergedChapter[]>([]);
   const [chaptersLoading, setChaptersLoading] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
   const [claimingCert, setClaimingCert] = useState(false);
@@ -52,43 +55,47 @@ export function CourseDetailView({
   const isEnrolled = enrollment?.enrolled ?? false;
 
   const loadProgress = useCallback(async () => {
-    if (!isEnrolled) return;
+    if (!isEnrolled || !xanoCourseId) return;
     try {
-      const p = await getCourseProgress(userId, course.documentId);
+      const p = await getCourseProgress(xanoCourseId);
       setProgress(p ?? null);
     } catch {
       setProgress(null);
     }
-  }, [userId, course.documentId, isEnrolled]);
+  }, [xanoCourseId, isEnrolled]);
+
+  const loadChaptersAndProgress = useCallback(async () => {
+    setChaptersLoading(true);
+    try {
+      const { chapters: mergedChapters, progress: prog } = await getCourseDetail(course.documentId, xanoCourseId);
+      setChapters(mergedChapters);
+      setProgress(prog ?? null);
+    } catch {
+      setChapters([]);
+    } finally {
+      setChaptersLoading(false);
+    }
+  }, [course.documentId, xanoCourseId]);
 
   useEffect(() => {
     loadProgress();
   }, [loadProgress]);
 
   useEffect(() => {
-    if (activeTab !== 'Chapters') return;
-    console.log('[CourseDetailView] Chapters tab: course object', { documentId: course.documentId, title: course.title, id: course.id });
-    setChaptersLoading(true);
-    fetchChaptersByCourse(course.documentId)
-      .then((chaptersResponse) => {
-        console.log('[CourseDetailView] Chapters response', chaptersResponse);
-        setChapters(chaptersResponse);
-      })
-      .catch((err) => {
-        console.log('[CourseDetailView] Chapters fetch error', err);
-        setChapters([]);
-      })
-      .finally(() => setChaptersLoading(false));
-  }, [activeTab, course.documentId, course.title, course.id]);
+    if (activeTab === 'Chapters' && chapters.length === 0 && !chaptersLoading) {
+      loadChaptersAndProgress();
+    }
+  }, [activeTab, course.documentId, loadChaptersAndProgress, chapters.length, chaptersLoading]);
 
   const handleEnroll = async () => {
-    if (enrolling || isEnrolled) return;
+    if (enrolling || isEnrolled || !xanoCourseId) return;
     setEnrolling(true);
     try {
-      await enrollCourse(userId, course.documentId);
+      await enrollCourse(xanoCourseId);
       Alert.alert('Success', 'You are enrolled!');
       onEnrolled?.();
       loadProgress();
+      loadChaptersAndProgress();
     } catch (e) {
       Alert.alert('Error', e instanceof Error ? e.message : 'Enrollment failed');
     } finally {
@@ -97,10 +104,10 @@ export function CourseDetailView({
   };
 
   const handleClaimCertificate = async () => {
-    if (claimingCert || !progress || progress.progress_percent < 100) return;
+    if (claimingCert || !progress || progress.progress_percent < 100 || !xanoCourseId) return;
     setClaimingCert(true);
     try {
-      await issueCertificate(userId, course.documentId);
+      await issueCertificate(xanoCourseId);
       const date = new Date().toLocaleDateString();
       onShowCertificate?.(course, date);
       loadProgress();
@@ -115,8 +122,8 @@ export function CourseDetailView({
   const certificateIssued = progress?.certificate_issued ?? false;
   const canClaimCertificate = isEnrolled && progressPercent >= 100 && !certificateIssued;
   const isComplete = isEnrolled && progressPercent >= 100;
-  const chapterCompletedMap = new Map(
-    (progress?.chapters ?? []).map((c) => [c.strapi_chapter_id, c.is_completed])
+  const chapterCompletedByXanoId = new Map(
+    (progress?.chapters ?? []).map((c) => [c.chapter_id, c.completed])
   );
 
   const headerImg = course.cover_image_url || 'https://images.unsplash.com/photo-1519817650390-64a93db51149?auto=format&fit=crop&q=80&w=400';
@@ -192,6 +199,11 @@ export function CourseDetailView({
                   <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
                 </View>
                 <Text style={styles.progressText}>{progressPercent}% Complete</Text>
+                {onShowProgress && (
+                  <Pressable style={styles.progressLinkBtn} onPress={() => onShowProgress(course)}>
+                    <Text style={styles.progressLinkText}>View full progress</Text>
+                  </Pressable>
+                )}
                 {certificateIssued && (
                   <View style={styles.certificateEarnedBadge}>
                     <Text style={styles.certificateEarnedText}>🏆 Certificate Earned</Text>
@@ -229,10 +241,9 @@ export function CourseDetailView({
               <ActivityIndicator style={{ marginVertical: 24 }} />
             ) : (
               chapters.map((ch, index) => {
-                const prevOrder = index > 0 ? chapters[index - 1].order : -1;
-                const prevCompleted = index > 0 ? chapterCompletedMap.get(chapters[index - 1].documentId) : true;
-                const isCompleted = chapterCompletedMap.get(ch.documentId);
-                const isLocked = ch.is_locked && !prevCompleted;
+                const prevCompleted = index > 0 ? chapterCompletedByXanoId.get(chapters[index - 1].xanoChapterId ?? 0) : true;
+                const isCompleted = chapterCompletedByXanoId.get(ch.xanoChapterId ?? 0) ?? ch.completed;
+                const isLocked = ch.xano_is_locked ?? (ch.is_locked && !prevCompleted);
                 const isCurrent = !isLocked && !isCompleted && (index === 0 || prevCompleted);
                 const iconName = CHAPTER_TYPE_ICONS[ch.chapter_type] ?? 'document-text';
 
@@ -435,6 +446,8 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   progressText: { fontSize: 13, color: '#6B7280', marginTop: 6 },
+  progressLinkBtn: { marginTop: 10 },
+  progressLinkText: { fontSize: 14, fontWeight: '600', color: LifeMonkColors.accentPrimary },
   teachersRow: { flexDirection: 'row', gap: 24, flexWrap: 'wrap' },
   teacher: { alignItems: 'center', width: 120 },
   teacherImg: { width: 64, height: 64, borderRadius: 32 },
