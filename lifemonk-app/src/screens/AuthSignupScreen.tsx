@@ -14,7 +14,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { signup, saveSession } from '@/src/services/auth';
+import { studentSignup } from '@/src/services/courses';
+import { saveSession } from '@/src/services/auth';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const PRIMARY = '#1e2235';
@@ -118,23 +119,21 @@ export function AuthSignupScreen({ onSignupSuccess, onGoToLogin }: Props) {
         subscription_type: selectedPlan,
       });
 
-      const result = await signup({
-        name: formData.name.trim(),
-        email: formData.email.trim(),
-        password: formData.password,
-        grade_level: selectedGrade,
-        subscription_type: selectedPlan,
-      });
+      const result = await studentSignup(
+        formData.name.trim(),
+        formData.email.trim(),
+        formData.password,
+        selectedGrade,
+        1,
+        selectedPlan ?? 'basic'
+      );
 
       console.log('Signup result:', JSON.stringify(result));
 
-      const resultKeys = result && typeof result === 'object' ? Object.keys(result as Record<string, unknown>) : [];
-      console.log('Result keys:', resultKeys);
-
       await saveSession(
-        (result as { authToken: string }).authToken,
-        String((result as { id?: number | string }).id ?? ''),
-        (result as { name?: string }).name
+        result.authToken,
+        String(result.user?.id ?? ''),
+        result.user?.name
       );
       onSignupSuccess();
     } catch (e: unknown) {
