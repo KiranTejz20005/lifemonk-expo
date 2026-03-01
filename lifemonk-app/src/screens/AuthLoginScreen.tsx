@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,7 +14,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { login, saveSession } from '@/src/services/auth';
+import { studentLogin } from '@/src/services/courses';
+import { saveSession } from '@/src/services/auth';
 
 const PRIMARY = '#1e2235';
 
@@ -36,16 +38,20 @@ export function AuthLoginScreen({ onLoginSuccess, onGoToSignup }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const result = await login(email.trim(), password);
+      const result = await studentLogin(email.trim(), password);
+      console.log('Login success:', result.user?.name ?? result.user?.email);
       await saveSession(
         result.authToken,
-        String(result.id ?? ''),
-        result.name,
+        String(result.user?.id ?? result.id ?? ''),
+        result.user?.name,
         rememberMe
       );
       onLoginSuccess();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Login failed');
+      const message = e instanceof Error ? e.message : 'Login failed';
+      console.log('Login error:', message);
+      setError(message);
+      Alert.alert('Login Failed', message);
     } finally {
       setLoading(false);
     }
