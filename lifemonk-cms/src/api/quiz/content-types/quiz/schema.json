@@ -6,15 +6,33 @@
     "pluralName": "quizzes",
     "displayName": "Quiz"
   },
-  "options": { "draftAndPublish": true },
+  "options": {
+    "draftAndPublish": true
+  },
+  "pluginOptions": {},
   "attributes": {
-    "title": { "type": "string", "required": true },
+    "title": {
+      "type": "string",
+      "required": true
+    },
     "chapter": {
       "type": "relation",
       "relation": "oneToOne",
       "target": "api::chapter.chapter"
     },
-    "pass_score": { "type": "integer", "default": 100 },
-    "questions": { "type": "json", "required": true }
+    "pass_score": {
+      "type": "integer",
+      "default": 100
+    },
+    "questions": {
+      "type": "json",
+      "required": true
+    },
+    "xano_chapter_id": {
+      "type": "integer"
+    },
+    "xano_quiz_id": {
+      "type": "integer"
+    }
   }
 }
