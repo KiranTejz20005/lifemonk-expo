@@ -1,8 +1,9 @@
 /**
  * LifeMonk — Production Auth Service
- * Uses SecureStore for token persistence and Xano for auth endpoints.
+ * Token: AsyncStorage (lifemonk_auth_token) first, then SecureStore fallback.
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { getXanoAuthBaseUrl } from './config';
 
@@ -91,6 +92,7 @@ export async function saveSession(
   name?: string,
   rememberMe: boolean = true
 ) {
+  await AsyncStorage.setItem('lifemonk_auth_token', String(token));
   await SecureStore.setItemAsync('auth_token', String(token));
   await SecureStore.setItemAsync('user_id', String(userId));
   if (name) await SecureStore.setItemAsync('user_name', name);
@@ -102,6 +104,8 @@ export async function saveSession(
 }
 
 export async function getToken(): Promise<string | null> {
+  const fromAsync = await AsyncStorage.getItem('lifemonk_auth_token');
+  if (fromAsync) return fromAsync;
   return await SecureStore.getItemAsync('auth_token');
 }
 
@@ -138,6 +142,8 @@ export async function getCurrentStudent(): Promise<{
 }
 
 export async function logout(): Promise<void> {
+  await AsyncStorage.removeItem('lifemonk_auth_token');
+  await AsyncStorage.removeItem('lifemonk_user');
   await SecureStore.deleteItemAsync('auth_token');
   await SecureStore.deleteItemAsync('user_id');
   await SecureStore.deleteItemAsync('user_name');
