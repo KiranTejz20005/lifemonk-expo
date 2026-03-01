@@ -2,14 +2,24 @@
  * LifeMonk — Courses Service
  * Strapi = content (titles, thumbnails, chapters, quiz). Xano = auth, enrollment, progress.
  * Uses env: STRAPI_BASE_URL, STRAPI_API_TOKEN (optional), XANO_BASE_URL.
- * Auth token stored in SecureStore.
+ * Auth token stored in SecureStore via auth.ts.
  */
 
 import * as SecureStore from 'expo-secure-store';
 import { getStrapiBaseUrl, getStrapiApiToken, getXanoBaseUrl } from './config';
+import { getToken, getUserId } from './auth';
 
-const AUTH_TOKEN_KEY = 'lifemonk_auth_token';
+const AUTH_TOKEN_KEY = 'auth_token';
 const USER_KEY = 'lifemonk_user';
+
+/**
+ * Returns the current user_id from SecureStore (set during login/signup).
+ * Falls back to stored user profile id, or '1' as last resort.
+ */
+export async function getCurrentUserId(): Promise<string> {
+  const id = await getUserId();
+  return id || '1';
+}
 
 // --- Strapi raw types ---
 
@@ -244,7 +254,7 @@ async function strapiHeaders(): Promise<Record<string, string>> {
 async function xanoHeaders(requireAuth = true): Promise<Record<string, string>> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (requireAuth) {
-    const token = await getAuthToken();
+    const token = await getToken();
     if (!token) throw new Error('AUTH_REQUIRED');
     headers['Authorization'] = `Bearer ${token}`;
   }
@@ -259,13 +269,15 @@ function handleXanoError(status: number, endpoint: string): Error {
 }
 
 // --- Token / user storage (SecureStore) ---
+// Primary auth token is managed by src/services/auth.ts (getToken/saveSession/logout).
+// These helpers remain for backward compatibility with existing code.
 
 export async function saveAuthToken(token: string): Promise<void> {
   await SecureStore.setItemAsync(AUTH_TOKEN_KEY, token);
 }
 
 export async function getAuthToken(): Promise<string | null> {
-  return await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+  return await getToken();
 }
 
 export async function clearAuthToken(): Promise<void> {

@@ -1,14 +1,13 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import 'react-native-reanimated';
+import * as SecureStore from 'expo-secure-store';
 
 import { OnboardingGate } from '@/components/OnboardingGate';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-
-const ONBOARDING_KEY = '@lifemonk/onboarding_completed';
+import { isLoggedIn, onAuthChange } from '@/src/services/auth';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -16,27 +15,39 @@ export const unstable_settings = {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState<boolean | null>(null);
+  const [authed, setAuthed] = useState<boolean | null>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem(ONBOARDING_KEY).then((value) => {
-      setHasCompletedOnboarding(value === 'true');
+    const startApp = async () => {
+      // TEMP: clear session for testing - remove before production
+      await SecureStore.deleteItemAsync('auth_token');
+      await SecureStore.deleteItemAsync('user_id');
+
+      const loggedIn = await isLoggedIn();
+      setAuthed(loggedIn);
+    };
+
+    startApp();
+
+    // Listen for logout events
+    const unsubscribe = onAuthChange(() => {
+      setAuthed(false);
     });
+    return unsubscribe;
   }, []);
 
-  const completeOnboarding = () => {
-    setHasCompletedOnboarding(true);
-    AsyncStorage.setItem(ONBOARDING_KEY, 'true');
+  const completeAuth = () => {
+    setAuthed(true);
   };
 
-  if (hasCompletedOnboarding === null) {
+  if (authed === null) {
     return null;
   }
 
-  if (!hasCompletedOnboarding) {
+  if (!authed) {
     return (
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <OnboardingGate onComplete={completeOnboarding} />
+        <OnboardingGate onComplete={completeAuth} />
         <StatusBar style="auto" />
       </ThemeProvider>
     );

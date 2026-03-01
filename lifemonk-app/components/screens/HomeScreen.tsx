@@ -140,7 +140,7 @@ export function HomeScreen({
         {activeTab === 'Monk Mode' && (
           <>
             <Pressable onPress={onBreathingClick} style={styles.welcomeCard}>
-              <Text style={styles.welcomeLabel}>HEY! {userName}</Text>
+              <Text style={styles.welcomeLabel}>HEY, {userName}!</Text>
               <View style={styles.meditationWrap}>
                 <Image
                   source={{ uri: 'https://images.unsplash.com/photo-1545389336-cf090694435e?auto=format&fit=crop&q=80&w=400' }}

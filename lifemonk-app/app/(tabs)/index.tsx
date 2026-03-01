@@ -11,6 +11,7 @@ import { JournalScreen } from '@/components/screens/JournalScreen';
 import { ProfileScreen } from '@/components/screens/ProfileScreen';
 import { LifeMonkColors } from '@/constants/lifemonk-theme';
 import { useTabBarVisibility } from '@/contexts/TabBarVisibilityContext';
+import { getUserName } from '@/src/services/auth';
 
 export type MainScreenState =
   | 'main'
@@ -27,6 +28,16 @@ export default function BytesTabScreen() {
   const { setTabBarVisible } = useTabBarVisibility();
 
   useEffect(() => {
+    const loadUserName = async () => {
+      const name = await getUserName();
+      if (name) {
+        setUserName(name);
+      }
+    };
+    loadUserName();
+  }, []);
+
+  useEffect(() => {
     const visible =
       screenState === 'main' && (homeTab === 'Monk Mode' || homeTab === 'Learn');
     setTabBarVisible(visible);
@@ -41,7 +52,7 @@ export default function BytesTabScreen() {
         {screenState === 'main' && (
           <Animated.View key="main" entering={FadeIn.duration(300)} exiting={FadeOut.duration(300)} style={{ flex: 1 }}>
             <HomeScreen
-              userName={userName}
+              userName={(userName || 'Guest').toUpperCase()}
               activeTab={homeTab}
               onTabChange={setHomeTab}
               onProfileClick={() => setScreenState('profile')}
