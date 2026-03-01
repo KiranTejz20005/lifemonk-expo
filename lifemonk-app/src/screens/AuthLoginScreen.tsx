@@ -27,6 +27,7 @@ export function AuthLoginScreen({ onLoginSuccess, onGoToSignup }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,7 +37,12 @@ export function AuthLoginScreen({ onLoginSuccess, onGoToSignup }: Props) {
     setError(null);
     try {
       const result = await login(email.trim(), password);
-      await saveSession(result.authToken, String(result.id || ''));
+      await saveSession(
+        result.authToken,
+        String(result.id ?? ''),
+        result.name,
+        rememberMe
+      );
       onLoginSuccess();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Login failed');
@@ -98,6 +104,19 @@ export function AuthLoginScreen({ onLoginSuccess, onGoToSignup }: Props) {
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
           <Pressable
+            style={styles.rememberRow}
+            onPress={() => setRememberMe((v) => !v)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons
+              name={rememberMe ? 'checkbox' : 'square-outline'}
+              size={22}
+              color={rememberMe ? PRIMARY : '#9CA3AF'}
+            />
+            <Text style={styles.rememberText}>Remember me — stay signed in</Text>
+          </Pressable>
+
+          <Pressable
             style={[styles.loginBtn, loading && styles.btnDisabled]}
             onPress={handleLogin}
             disabled={loading}
@@ -151,6 +170,14 @@ const styles = StyleSheet.create({
     padding: 2,
   },
   errorText: { color: '#EF4444', fontSize: 13, fontWeight: '600', marginBottom: 12, marginLeft: 4 },
+  rememberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 16,
+    alignSelf: 'flex-start',
+  },
+  rememberText: { fontSize: 15, color: PRIMARY, fontWeight: '500' },
   loginBtn: {
     backgroundColor: PRIMARY,
     borderRadius: 10,

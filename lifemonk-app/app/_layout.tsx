@@ -19,10 +19,14 @@ export default function RootLayout() {
 
   useEffect(() => {
     const startApp = async () => {
-      // TEMP: clear session for testing - remove before production
-      await SecureStore.deleteItemAsync('auth_token');
-      await SecureStore.deleteItemAsync('user_id');
-
+      // If user logged in with "Remember me" unchecked, clear session so they see login again
+      const sessionOnly = await SecureStore.getItemAsync('session_only');
+      if (sessionOnly === '1') {
+        await SecureStore.deleteItemAsync('auth_token');
+        await SecureStore.deleteItemAsync('user_id');
+        await SecureStore.deleteItemAsync('user_name');
+        await SecureStore.deleteItemAsync('session_only');
+      }
       const loggedIn = await isLoggedIn();
       setAuthed(loggedIn);
     };

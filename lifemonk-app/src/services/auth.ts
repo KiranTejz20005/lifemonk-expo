@@ -35,6 +35,7 @@ export async function signup(data: {
   const LOGIN_URL = 'https://x8ki-letl-twmt.n7.xano.io/api:oks0Dp98/auth/login';
 
   // Step 1: Create the student
+  // Xano may expect grade_level as string (e.g. "5") or as a grade_id from a grades table; send string to match common API validation.
   const signupRes = await fetch(SIGNUP_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -42,7 +43,7 @@ export async function signup(data: {
       name: data.name,
       email: data.email,
       password: data.password,
-      grade_level: Number(data.grade_level),
+      grade_level: String(data.grade_level),
       subscription_type: data.subscription_type,
     }),
   });
@@ -82,10 +83,22 @@ export async function login(email: string, password: string) {
   return json;
 }
 
-export async function saveSession(token: string, userId: any, name?: string) {
+const SESSION_ONLY_KEY = 'session_only';
+
+export async function saveSession(
+  token: string,
+  userId: any,
+  name?: string,
+  rememberMe: boolean = true
+) {
   await SecureStore.setItemAsync('auth_token', String(token));
   await SecureStore.setItemAsync('user_id', String(userId));
   if (name) await SecureStore.setItemAsync('user_name', name);
+  if (rememberMe) {
+    await SecureStore.deleteItemAsync(SESSION_ONLY_KEY);
+  } else {
+    await SecureStore.setItemAsync(SESSION_ONLY_KEY, '1');
+  }
 }
 
 export async function getToken(): Promise<string | null> {
@@ -127,10 +140,37 @@ export async function logout(): Promise<void> {
   await SecureStore.deleteItemAsync('auth_token');
   await SecureStore.deleteItemAsync('user_id');
   await SecureStore.deleteItemAsync('user_name');
+  await SecureStore.deleteItemAsync(SESSION_ONLY_KEY);
   notifyAuthChange();
 }
 
 export async function isLoggedIn(): Promise<boolean> {
   const token = await getToken();
   return !!token;
+}
+
+/** Profile returned by the auth API (e.g. /auth/me on the same base as login). */
+export interface AuthProfile {
+  id?: number;
+  name?: string;
+  email?: string;
+  subscription_type?: string;
+  grade_id?: number;
+  school_id?: number;
+}
+
+/** Fetch current user profile from the auth API. Use this for profile/plan; token was issued by this API. */
+export async function getProfile(): Promise<AuthProfile> {
+  const token = await getToken();
+  if (!token) throw new Error('Not signed in');
+  const res = await fetch(XANO_AUTH_URL + '/auth/me', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    if (res.status === 404) throw new Error('Profile endpoint not found. Ensure /auth/me exists on your auth API.');
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { message?: string }).message ?? `Profile failed: ${res.status}`);
+  }
+  return (await res.json()) as AuthProfile;
 }
