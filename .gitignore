@@ -1,1 +1,4 @@
 node_modules
+
+# Local only: env setup with all URLs/APIs. Share with friends via WhatsApp etc. Do not push.
+ENV_SETUP.md
