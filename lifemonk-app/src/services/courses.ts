@@ -5,6 +5,7 @@
  * Auth token stored in SecureStore via auth.ts.
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { getStrapiBaseUrl, getStrapiApiToken, getXanoBaseUrl } from './config';
 import { getCurrentStudent, getToken, getUserId } from './auth';
@@ -274,6 +275,7 @@ function handleXanoError(status: number, endpoint: string): Error {
 
 export async function saveAuthToken(token: string): Promise<void> {
   await SecureStore.setItemAsync(AUTH_TOKEN_KEY, token);
+  await AsyncStorage.setItem('lifemonk_auth_token', token);
 }
 
 export async function getAuthToken(): Promise<string | null> {
@@ -283,10 +285,13 @@ export async function getAuthToken(): Promise<string | null> {
 export async function clearAuthToken(): Promise<void> {
   await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
   await SecureStore.deleteItemAsync(USER_KEY);
+  await AsyncStorage.removeItem('lifemonk_auth_token');
+  await AsyncStorage.removeItem('lifemonk_user');
 }
 
 export async function saveUser(user: StudentProfile): Promise<void> {
   await SecureStore.setItemAsync(USER_KEY, JSON.stringify(user));
+  await AsyncStorage.setItem('lifemonk_user', JSON.stringify(user));
 }
 
 export async function getStoredUser(): Promise<StudentProfile | null> {
@@ -337,10 +342,15 @@ export async function fetchCourses(): Promise<Course[]> {
   const headers = await strapiHeaders();
   try {
     const url = `${base}/api/courses?populate[category]=true&populate[cover_image]=true&populate[instructor_image]=true&filters[is_active][$eq]=true&sort=order:asc`;
+    console.log('Strapi URL:', url);
     const res = await fetch(url, { headers });
+    console.log('Strapi status:', res.status);
     if (!res.ok) throw new Error(`Strapi courses failed: ${res.status}`);
     const json = await res.json();
     const rawList = Array.isArray(json.data) ? json.data : json.data?.data ?? [];
+    console.log('Strapi courses:', rawList.length);
+    console.log('First raw course:', JSON.stringify(rawList[0] ?? null));
+    if (rawList.length === 0) return [];
     return rawList.map((item: unknown) => {
       const course = unwrapItem<StrapiCourseRaw>(item);
       const categoryObj = course.category;
@@ -358,7 +368,7 @@ export async function fetchCourses(): Promise<Course[]> {
         description: course.description ?? '',
         cover_image_url: fullUrl(base, coverUrl),
         intro_video_url: course.intro_video_url ?? null,
-        category: categoryName ?? 'Uncategorized',
+        category: categoryName ?? 'General',
         category_id: categoryDocId ?? null,
         user_type_visibility: course.user_type_visibility ?? 'all',
         instructor_name: course.instructor_name ?? '',
@@ -505,7 +515,12 @@ export async function fetchQuizByChapter(chapterDocumentId: string): Promise<Qui
   }
 }
 
-// --- Xano Auth ---
+// --- Xano Auth (use Auth group base) ---
+
+const XANO_AUTH_BASE = 'https://x8ki-letl-twmt.n7.xano.io/api:lzV5OYCY';
+const XANO_COURSES_BASE = 'https://x8ki-letl-twmt.n7.xano.io/api:j1bkW6GC';
+console.log('Auth URL:', XANO_AUTH_BASE);
+console.log('Courses URL:', XANO_COURSES_BASE);
 
 export async function studentSignup(
   name: string,
@@ -515,18 +530,15 @@ export async function studentSignup(
   schoolId: number,
   subscriptionType = 'basic'
 ): Promise<AuthResponse> {
-  const base = getXanoBaseUrl();
+  const url = `${XANO_AUTH_BASE}/auth/signup`;
   try {
-    const res = await fetch(`${base}/auth/signup`, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, email, password, grade_id: gradeId, school_id: schoolId, subscription_type: subscriptionType }),
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error((err as { message?: string }).message ?? `Signup failed: ${res.status}`);
-    }
-    const data = (await res.json()) as AuthResponse;
+    const data = await res.json().catch(() => ({})) as AuthResponse & { message?: string };
+    if (!res.ok) throw new Error(data.message ?? `Signup failed: ${res.status}`);
     await saveAuthToken(data.authToken);
     await saveUser(data.user);
     return data;
@@ -536,18 +548,18 @@ export async function studentSignup(
 }
 
 export async function studentLogin(email: string, password: string): Promise<AuthResponse> {
-  const base = getXanoBaseUrl();
+  const url = `${XANO_AUTH_BASE}/auth/login`;
+  console.log('Login URL:', url);
   try {
-    const res = await fetch(`${base}/auth/login`, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error((err as { message?: string }).message ?? 'Invalid email or password');
-    }
-    const data = (await res.json()) as AuthResponse;
+    console.log('Login status:', res.status);
+    const data = await res.json().catch(() => ({})) as AuthResponse & { message?: string };
+    console.log('Login response:', JSON.stringify(data));
+    if (!res.ok) throw new Error(data.message ?? 'Invalid email or password');
     await saveAuthToken(data.authToken);
     await saveUser(data.user);
     return data;
@@ -557,9 +569,12 @@ export async function studentLogin(email: string, password: string): Promise<Aut
 }
 
 export async function getStudentProfile(): Promise<StudentProfile> {
-  const base = getXanoBaseUrl();
-  const headers = await xanoHeaders(true);
-  const res = await fetch(`${base}/auth/me`, { headers });
+  let token = await AsyncStorage.getItem('lifemonk_auth_token');
+  if (!token) token = await getToken();
+  if (!token) throw new Error('AUTH_REQUIRED');
+  const res = await fetch(`${XANO_AUTH_BASE}/auth/me`, {
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+  });
   if (!res.ok) throw handleXanoError(res.status, '/auth/me');
   return (await res.json()) as StudentProfile;
 }
@@ -568,33 +583,46 @@ export async function studentLogout(): Promise<void> {
   await clearAuthToken();
 }
 
-// --- Xano Course API (JWT + xano IDs) ---
+// --- Xano Course API (use Courses group base) ---
 
 export async function getStudentCourses(): Promise<XanoCourseEntry[]> {
-  const base = getXanoBaseUrl();
-  const headers = await xanoHeaders(true);
-  const res = await fetch(`${base}/get_student_enrollments`, { headers });
-  if (!res.ok) throw handleXanoError(res.status, '/get_student_enrollments');
-  const json = await res.json();
-  return Array.isArray(json) ? json : (json as { courses?: XanoCourseEntry[] }).courses ?? json.data ?? [];
+  const url = `${XANO_COURSES_BASE}/get_user_courses`;
+  try {
+    let token = await AsyncStorage.getItem('lifemonk_auth_token');
+    if (!token) token = await getToken();
+    if (!token) {
+      console.log('Xano URL:', url);
+      console.log('Token:', 'missing');
+      return [];
+    }
+    console.log('Xano URL:', url);
+    console.log('Token:', token ? 'exists' : 'missing');
+    const res = await fetch(url, {
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    });
+    console.log('Xano status:', res.status);
+    if (res.status === 401) {
+      await AsyncStorage.removeItem('lifemonk_auth_token');
+      await AsyncStorage.removeItem('lifemonk_user');
+      return [];
+    }
+    if (!res.ok) return [];
+    const json = await res.json();
+    return Array.isArray(json) ? json : (json as { courses?: XanoCourseEntry[] }).courses ?? json.data ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export async function getCoursesForCurrentStudent() {
   try {
-    const student = await getCurrentStudent();
-    if (!student) return [];
-
-    const base = getXanoBaseUrl();
-    const token = await getToken();
-    const res = await fetch(
-      base + '/get_user_courses?user_id=' + student.id,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: 'Bearer ' + token } : {}),
-        },
-      }
-    );
+    let token = await AsyncStorage.getItem('lifemonk_auth_token');
+    if (!token) token = await getToken();
+    if (!token) return [];
+    const res = await fetch(`${XANO_COURSES_BASE}/get_user_courses`, {
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return [];
     const json = await res.json();
     return Array.isArray(json) ? json : [];
   } catch {
@@ -602,10 +630,120 @@ export async function getCoursesForCurrentStudent() {
   }
 }
 
+/** Raw course or assignment item from Xano get_user_courses. Field names may vary. */
+interface XanoUserCourseItem {
+  id?: number;
+  course_id?: number;
+  title?: string;
+  category?: string;
+  thumbnail_url?: string | null;
+  strapi?: string | null;
+  strapi_document_id?: string | null;
+  visibility_level?: string | null;
+  description?: string | null;
+  enrolled?: boolean;
+  status?: string;
+  progress_percent?: number;
+  [key: string]: unknown;
+}
+
+/**
+ * Fetches course list from Xano via get_user_courses (courses assigned to the student),
+ * merged with enrollment status. Falls back to Strapi + getStudentCourses if get_user_courses
+ * fails or returns empty. Returns MergedCourse[] for the Learn page.
+ */
+export async function getXanoCatalogCourses(): Promise<MergedCourse[]> {
+  let token = await AsyncStorage.getItem('lifemonk_auth_token');
+  if (!token) token = await getToken();
+  if (!token) return getHomeScreenCourses().catch(() => []);
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+  const student = await getCurrentStudent();
+  if (!student) return getHomeScreenCourses().catch(() => []);
+
+  try {
+    const res = await fetch(`${XANO_COURSES_BASE}/get_user_courses`, { headers });
+    if (!res.ok) {
+      if (res.status === 404) return getHomeScreenCourses().catch(() => []);
+      throw handleXanoError(res.status, '/get_user_courses');
+    }
+    const json = await res.json();
+    const rawList: XanoUserCourseItem[] = Array.isArray(json) ? json : json?.data ?? json?.courses ?? [];
+    const xanoEnrollments = await getStudentCourses().catch(() => []);
+
+    const hasFullCourse = rawList.some((row) => row.title != null);
+    if (hasFullCourse) {
+      return rawList.map((row) => {
+        const xanoId = Number(row.id ?? row.course_id ?? 0);
+        const documentId =
+          (typeof row.strapi === 'string' && row.strapi.trim() ? row.strapi.trim() : null) ||
+          (typeof row.strapi_document_id === 'string' && row.strapi_document_id.trim() ? row.strapi_document_id.trim() : null) ||
+          '';
+        const xanoEntry = xanoEnrollments.find((e) => e.course_id === xanoId);
+        const course: Course = {
+          id: xanoId,
+          documentId: documentId ?? '',
+          xanoCourseId: xanoId,
+          title: typeof row.title === 'string' ? row.title : 'Untitled',
+          short_description: typeof row.description === 'string' ? row.description.slice(0, 200) : '',
+          description: typeof row.description === 'string' ? row.description : '',
+          cover_image_url: typeof row.thumbnail_url === 'string' && row.thumbnail_url ? row.thumbnail_url : null,
+          intro_video_url: null,
+          category: typeof row.category === 'string' ? row.category : 'Uncategorized',
+          category_id: null,
+          user_type_visibility: (row.visibility_level as string) ?? 'all',
+          instructor_name: '',
+          instructor_bio: '',
+          instructor_image_url: null,
+          grades: [],
+          is_active: true,
+          order: 0,
+          estimated_hours: null,
+        };
+        return {
+          ...course,
+          enrolled: row.enrolled ?? xanoEntry?.enrolled ?? false,
+          status: (row.status as string) ?? xanoEntry?.status ?? 'not_enrolled',
+          progress_percent: row.progress_percent ?? xanoEntry?.progress_percent ?? 0,
+        } as MergedCourse;
+      });
+    }
+
+    const documentIds = new Set<string>();
+    for (const row of rawList) {
+      const docId = (typeof row.strapi === 'string' && row.strapi.trim() ? row.strapi : null) ||
+        (typeof row.strapi_document_id === 'string' && row.strapi_document_id.trim() ? row.strapi_document_id : null);
+      if (docId) documentIds.add(docId);
+    }
+    if (documentIds.size === 0) return getHomeScreenCourses().catch(() => []);
+
+    const strapiCourses = await fetchCourses().catch(() => []);
+    const merged: MergedCourse[] = strapiCourses
+      .filter((c) => documentIds.has(c.documentId))
+      .map((course) => {
+        const assignment = rawList.find((row) => {
+          const docId = (typeof row.strapi === 'string' && row.strapi.trim() ? row.strapi : null) ||
+            (typeof row.strapi_document_id === 'string' && row.strapi_document_id.trim() ? row.strapi_document_id : null);
+          return docId === course.documentId;
+        });
+        const xanoId = assignment ? Number(assignment.course_id ?? assignment.id ?? 0) : course.xanoCourseId ?? 0;
+        const xanoEntry = xanoEnrollments.find((e) => e.course_id === xanoId);
+        return {
+          ...course,
+          xanoCourseId: xanoId || course.xanoCourseId,
+          enrolled: (assignment as XanoUserCourseItem)?.enrolled ?? xanoEntry?.enrolled ?? false,
+          status: (assignment as XanoUserCourseItem)?.status ?? xanoEntry?.status ?? 'not_enrolled',
+          progress_percent: (assignment as XanoUserCourseItem)?.progress_percent ?? xanoEntry?.progress_percent ?? 0,
+        } as MergedCourse;
+      });
+    return merged;
+  } catch {
+    return getHomeScreenCourses().catch(() => []);
+  }
+}
+
 export async function enrollCourse(xanoCourseId: number): Promise<void> {
-  const base = getXanoBaseUrl();
   const headers = await xanoHeaders(true);
-  const res = await fetch(`${base}/enroll_course`, {
+  const res = await fetch(`${XANO_COURSES_BASE}/enroll_course`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ course_id: xanoCourseId }),
@@ -618,10 +756,9 @@ export async function enrollCourse(xanoCourseId: number): Promise<void> {
 }
 
 export async function getCourseProgress(xanoCourseId: number): Promise<XanoCourseProgress | null> {
-  const base = getXanoBaseUrl();
   const headers = await xanoHeaders(true);
   try {
-    const res = await fetch(`${base}/get_course_progress?course_id=${xanoCourseId}`, { headers });
+    const res = await fetch(`${XANO_COURSES_BASE}/get_course_progress?course_id=${xanoCourseId}`, { headers });
     if (!res.ok) return null;
     return (await res.json()) as XanoCourseProgress;
   } catch {
@@ -634,9 +771,8 @@ export async function completeChapter(
   watchTimeSeconds = 0,
   quizScore?: number
 ): Promise<void> {
-  const base = getXanoBaseUrl();
   const headers = await xanoHeaders(true);
-  const res = await fetch(`${base}/complete_chapter`, {
+  const res = await fetch(`${XANO_COURSES_BASE}/complete_chapter`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -656,9 +792,8 @@ export async function submitQuizAttempt(
   totalQuestions: number,
   correctAnswers: number
 ): Promise<{ score: number; passed: boolean; pass_score: number }> {
-  const base = getXanoBaseUrl();
   const headers = await xanoHeaders(true);
-  const res = await fetch(`${base}/submit_quiz_attempt`, {
+  const res = await fetch(`${XANO_COURSES_BASE}/submit_quiz_attempt`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -675,9 +810,8 @@ export async function submitQuizAttempt(
 }
 
 export async function issueCertificate(xanoCourseId: number): Promise<void> {
-  const base = getXanoBaseUrl();
   const headers = await xanoHeaders(true);
-  const res = await fetch(`${base}/issue_certificate`, {
+  const res = await fetch(`${XANO_COURSES_BASE}/issue_certificate`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ course_id: xanoCourseId }),
@@ -689,13 +823,15 @@ export async function issueCertificate(xanoCourseId: number): Promise<void> {
 
 export async function getHomeScreenCourses(): Promise<MergedCourse[]> {
   try {
-    const [strapiCourses, xanoCourses] = await Promise.allSettled([
+    const [strapiResult, xanoResult] = await Promise.allSettled([
       fetchCourses(),
-      getStudentCourses().catch(() => []),
+      getStudentCourses(),
     ]);
-    const courses = strapiCourses.status === 'fulfilled' ? strapiCourses.value : [];
-    const xanoData = xanoCourses.status === 'fulfilled' ? xanoCourses.value : [];
-    return courses.map((course) => {
+    console.log('Strapi result:', strapiResult.status);
+    console.log('Xano result:', xanoResult.status);
+    const courses = strapiResult.status === 'fulfilled' ? strapiResult.value : [];
+    const xanoData = xanoResult.status === 'fulfilled' ? xanoResult.value : [];
+    const merged = courses.map((course) => {
       const xanoEntry = course.xanoCourseId
         ? xanoData.find((x) => x.course_id === course.xanoCourseId)
         : undefined;
@@ -706,8 +842,10 @@ export async function getHomeScreenCourses(): Promise<MergedCourse[]> {
         progress_percent: xanoEntry?.progress_percent ?? 0,
       } as MergedCourse;
     });
-  } catch (e) {
-    throw new Error(e instanceof Error ? e.message : 'Could not load courses.');
+    console.log('Final merged count:', merged.length);
+    return merged;
+  } catch {
+    return [];
   }
 }
 
