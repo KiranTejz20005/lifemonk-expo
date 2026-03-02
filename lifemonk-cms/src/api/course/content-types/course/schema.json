@@ -42,8 +42,8 @@
       "default": "all",
       "enum": [
         "all",
-        "premium_ultra",
-        "ultra_only"
+        "premium",
+        "ultra"
       ]
     },
     "instructor_name": {

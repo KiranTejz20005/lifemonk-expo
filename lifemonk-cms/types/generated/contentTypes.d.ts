@@ -552,10 +552,53 @@ export interface ApiCourseCourse extends Struct.CollectionTypeSchema {
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
     user_type_visibility: Schema.Attribute.Enumeration<
-      ['all', 'premium_ultra', 'ultra_only']
+      ['all', 'premium', 'ultra']
     > &
       Schema.Attribute.DefaultTo<'all'>;
     xano_course_id: Schema.Attribute.Integer;
+  };
+}
+
+export interface ApiMappingMapping extends Struct.CollectionTypeSchema {
+  collectionName: 'mappings';
+  info: {
+    description: 'Maps assets like courses, workshops, bytes to users by grade, school or subscription';
+    displayName: 'Mapping';
+    pluralName: 'mappings';
+    singularName: 'mapping';
+  };
+  options: {
+    draftAndPublish: true;
+  };
+  attributes: {
+    asset_id: Schema.Attribute.Integer & Schema.Attribute.Required;
+    asset_name: Schema.Attribute.String;
+    asset_type: Schema.Attribute.Enumeration<
+      ['course', 'workshop', 'byte', 'quiz']
+    > &
+      Schema.Attribute.Required;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    grade: Schema.Attribute.Integer;
+    is_active: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<true>;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::mapping.mapping'
+    > &
+      Schema.Attribute.Private;
+    notes: Schema.Attribute.Text;
+    publishedAt: Schema.Attribute.DateTime;
+    school_name: Schema.Attribute.String;
+    subscription_type: Schema.Attribute.Enumeration<
+      ['all', 'basic', 'premium', 'ultra', 'school']
+    > &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'all'>;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
   };
 }
 
@@ -1103,6 +1146,7 @@ declare module '@strapi/strapi' {
       'api::category.category': ApiCategoryCategory;
       'api::chapter.chapter': ApiChapterChapter;
       'api::course.course': ApiCourseCourse;
+      'api::mapping.mapping': ApiMappingMapping;
       'api::quiz.quiz': ApiQuizQuiz;
       'plugin::content-releases.release': PluginContentReleasesRelease;
       'plugin::content-releases.release-action': PluginContentReleasesReleaseAction;

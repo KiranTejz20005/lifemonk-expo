@@ -1,0 +1,46 @@
+{
+  "kind": "collectionType",
+  "collectionName": "mappings",
+  "info": {
+    "singularName": "mapping",
+    "pluralName": "mappings",
+    "displayName": "Mapping",
+    "description": "Maps assets like courses, workshops, bytes to users by grade, school or subscription"
+  },
+  "options": {
+    "draftAndPublish": true
+  },
+  "attributes": {
+    "asset_type": {
+      "type": "enumeration",
+      "enum": ["course", "workshop", "byte", "quiz"],
+      "required": true
+    },
+    "asset_id": {
+      "type": "integer",
+      "required": true
+    },
+    "asset_name": {
+      "type": "string"
+    },
+    "subscription_type": {
+      "type": "enumeration",
+      "enum": ["all", "basic", "premium", "ultra", "school"],
+      "required": true,
+      "default": "all"
+    },
+    "grade": {
+      "type": "integer"
+    },
+    "school_name": {
+      "type": "string"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    },
+    "notes": {
+      "type": "text"
+    }
+  }
+}

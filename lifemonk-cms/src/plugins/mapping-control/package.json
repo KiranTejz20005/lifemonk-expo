@@ -1,0 +1,13 @@
+{
+  "name": "mapping-control",
+  "version": "1.0.0",
+  "description": "LifeMonk Mapping Control Plugin — assign courses, workshops, books and content to audiences",
+  "strapi": {
+    "name": "mapping-control",
+    "displayName": "Mapping Control",
+    "description": "Audience → Asset mapping wizard",
+    "kind": "plugin"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
