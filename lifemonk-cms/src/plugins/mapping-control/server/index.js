@@ -16,7 +16,7 @@ function getXanoClient() {
 function toArray(data) {
   if (Array.isArray(data)) return data;
   if (!data || typeof data !== 'object') return [];
-  const arr = data.data ?? data.items ?? data.results ?? data.records ?? data.grades ?? data.body ?? [];
+  const arr = data.data ?? data.items ?? data.results ?? data.records ?? data.grades ?? data.schools ?? data.body ?? [];
   return Array.isArray(arr) ? arr : [];
 }
 
@@ -26,6 +26,7 @@ const routeList = [
   { method: 'GET', path: '/xano/grades', handler: 'xanoController.grades', config: { auth: false, policies: [] } },
   { method: 'GET', path: '/xano/categories', handler: 'xanoController.categories', config: { auth: false, policies: [] } },
   { method: 'GET', path: '/xano/courses', handler: 'xanoController.courses', config: { auth: false, policies: [] } },
+  { method: 'GET', path: '/xano/catalog', handler: 'xanoController.catalog', config: { auth: false, policies: [] } },
   { method: 'GET', path: '/xano/user-count', handler: 'xanoController.userCount', config: { auth: false, policies: [] } },
   { method: 'GET', path: '/xano/user-courses', handler: 'xanoController.userCourses', config: { auth: false, policies: [] } },
 ];
@@ -42,30 +43,74 @@ const routes = {
 const controllers = {
   mappingController: {
     async assign(ctx) {
-      const { audience, assets, rules } = ctx.request.body;
+      const { audience, assets, rules } = ctx.request.body || {};
+      let userType = audience?.userType || audience?.subscription_type || 'premium';
+      if (userType === 'school' || userType === 'all') userType = 'premium';
+      if (!['basic', 'premium', 'ultra'].includes(userType)) userType = 'premium';
+      const grade = audience?.grade ?? null;
+      const schools = audience?.schools ?? audience?.school_name ?? null;
+      const schoolId = Array.isArray(schools) && schools.length > 0 ? schools[0] : (typeof schools === 'string' && schools ? schools.split(',')[0].trim() : null);
+      const gradeIds = Array.isArray(audience?.gradeIds) ? audience.gradeIds : (grade != null ? [Number(grade)] : []);
+
       const results = [];
-      for (const asset of assets) {
+      const xano = getXanoClient();
+      const coursesBaseUrl = xano.getBaseUrl('courses');
+      const canCallXano = xano.hasValidBase(coursesBaseUrl);
+
+      for (const asset of assets || []) {
+        const assetType = asset.type || 'course';
+        const assetId = asset.id != null ? asset.id : 0;
+        const assetName = asset.name || '';
+
+        const mappingData = {
+          asset_type: assetType,
+          asset_id: Number(assetId) || 0,
+          asset_name: assetName,
+          subscription_type: userType,
+          grade: grade != null ? Number(grade) : null,
+          school_name: typeof schools === 'string' ? schools : (Array.isArray(schools) ? schools.join(',') : null),
+          is_active: true,
+        };
+
         const entry = await strapiInstance.entityService.create('api::mapping.mapping', {
-          data: {
-            audienceType: audience.userType,
-            grade: audience.grade ?? null,
-            specificUsers: audience.specificUsers ?? [],
-            assetType: asset.type,
-            assetId: asset.id,
-            assetName: asset.name,
-            accessType: rules.accessType,
-            expiryDate: rules.expiryDate ?? null,
-            assignmentMode: rules.assignmentMode,
-          },
+          data: mappingData,
         });
         results.push(entry);
+
+        if (canCallXano && assetType === 'course' && (assetId || assetName)) {
+          const contentId = String(assetId || assetName);
+          const numericCourseId = typeof assetId === 'number' && Number.isFinite(assetId) ? assetId : (parseInt(String(assetId), 10) || null);
+          const payload = {
+            content_type: 'course',
+            content_id: contentId,
+            content_title: assetName,
+            grade_ids: gradeIds,
+            subscription_type: userType,
+            school_id: schoolId ? parseInt(String(schoolId), 10) || 0 : 0,
+            is_active: true,
+            assigned_by: 1,
+          };
+          if (numericCourseId != null) payload.course_id = numericCourseId;
+          const res = await xano.post('upsert_entitlement', payload, { base: 'courses' });
+          if (!res.ok) {
+            console.warn('[mapping-control] Xano upsert_entitlement failed:', res.status, contentId, '- Check XANO_COURSES_BASE_URL and that POST upsert_entitlement exists in that API group.');
+          } else {
+            console.log('[mapping-control] Xano entitlement saved 200 for', contentId);
+          }
+        }
       }
+
       ctx.send({ ok: true, created: results.length, results });
     },
   },
   xanoController: {
     async schools(ctx) {
       const xano = getXanoClient();
+      if (!xano.hasValidBase(xano.getBaseUrl('members'))) {
+        console.warn('[mapping-control] XANO_MEMBERS_BASE_URL / XANO_BASE_URL not set — cannot fetch schools');
+        ctx.send([]);
+        return;
+      }
       const data = await xano.get('get_all_schools', { base: 'members' });
       ctx.send(toArray(data));
     },
@@ -154,42 +199,30 @@ const controllers = {
     },
     async categories(ctx) {
       const xano = getXanoClient();
-      const baseUrl = xano.getBaseUrl('courses');
-      if (!xano.hasValidBase(baseUrl)) {
-        console.warn('[mapping-control] XANO_COURSES_BASE_URL / XANO_BASE_URL not set — cannot fetch categories');
+      if (!xano.hasValidBase(xano.getBaseUrl('courses'))) {
         ctx.send([]);
         return;
       }
-      let list = [];
-      const data = await xano.get('get_all_categories', { base: 'courses' });
-      const raw = toArray(data);
-      if (raw.length > 0 && typeof raw[0] === 'object' && (raw[0].name != null || raw[0].id != null)) {
-        list = raw.map((c) => ({ id: c.id ?? c.name, name: c.name ?? c.attributes?.name ?? String(c.id ?? '') }));
-      } else if (raw.length > 0 && (typeof raw[0] === 'string' || typeof raw[0] === 'number')) {
-        list = raw.map((v) => ({ id: v, name: String(v) }));
-      }
-      if (list.length === 0) {
-        const coursesData = await xano.get('get_all_courses', { base: 'courses' })
-          || await xano.get('course', { base: 'courses' })
-          || await xano.get('courses', { base: 'courses' });
-        const courses = toArray(coursesData);
-        const seen = new Set();
-        const categoryName = (c) => (c && (c.category ?? c.attributes?.category));
-        courses.forEach((c) => {
-          const name = categoryName(c);
-          if (name != null && String(name).trim() && !seen.has(String(name).trim())) {
-            seen.add(String(name).trim());
-            list.push({ id: String(name).trim(), name: String(name).trim() });
-          }
-        });
-        list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-      }
+      const coursesData = await xano.get('get_all_courses', { base: 'courses' })
+        || await xano.get('course', { base: 'courses' })
+        || await xano.get('courses', { base: 'courses' });
+      const courses = toArray(coursesData);
+      const seen = new Set();
+      const list = [];
+      const categoryName = (c) => (c && (c.category ?? c.attributes?.category));
+      courses.forEach((c) => {
+        const name = categoryName(c);
+        if (name != null && String(name).trim() && !seen.has(String(name).trim())) {
+          seen.add(String(name).trim());
+          list.push({ id: String(name).trim(), name: String(name).trim() });
+        }
+      });
+      list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
       ctx.send(list);
     },
     async courses(ctx) {
       const xano = getXanoClient();
-      const baseUrl = xano.getBaseUrl('courses');
-      if (!xano.hasValidBase(baseUrl)) {
+      if (!xano.hasValidBase(xano.getBaseUrl('courses'))) {
         ctx.send([]);
         return;
       }
@@ -197,6 +230,29 @@ const controllers = {
         || await xano.get('course', { base: 'courses' })
         || await xano.get('courses', { base: 'courses' });
       ctx.send(toArray(data));
+    },
+    async catalog(ctx) {
+      const xano = getXanoClient();
+      if (!xano.hasValidBase(xano.getBaseUrl('courses'))) {
+        ctx.send({ categories: [], courses: [] });
+        return;
+      }
+      const data = await xano.get('get_all_courses', { base: 'courses' })
+        || await xano.get('course', { base: 'courses' })
+        || await xano.get('courses', { base: 'courses' });
+      const courses = toArray(data);
+      const seen = new Set();
+      const categories = [];
+      const categoryName = (c) => (c && (c.category ?? c.attributes?.category));
+      courses.forEach((c) => {
+        const name = categoryName(c);
+        if (name != null && String(name).trim() && !seen.has(String(name).trim())) {
+          seen.add(String(name).trim());
+          categories.push({ id: String(name).trim(), name: String(name).trim() });
+        }
+      });
+      categories.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      ctx.send({ categories, courses });
     },
   },
 };
