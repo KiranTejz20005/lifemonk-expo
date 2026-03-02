@@ -9,6 +9,7 @@ const getCourseCategoryId = (c) => {
   return data ? (data.documentId ?? data.id ?? '') : null;
 };
 const getCourseTitle = (c) => c?.attributes?.title ?? c?.title ?? 'Untitled';
+const getCourseId = (c) => c?.id ?? c?.documentId ?? c?.attributes?.documentId ?? c?.strapi_document_id ?? null;
 
 const MappingPage = () => {
   const [userGroup, setUserGroup] = React.useState('');
@@ -32,52 +33,47 @@ const MappingPage = () => {
   const schoolsRef = React.useRef(null);
 
   React.useEffect(() => {
-    const strapiCategoriesPromise = fetch('/api/categories?pagination[pageSize]=100').then(r => r.json()).then(d => d.data || []).catch(() => []);
-    const strapiCoursesPromise = fetch('/api/courses?populate=category&pagination[pageSize]=100').then(r => r.json()).then(d => d.data || []).catch(() => []);
-    const xanoCategoriesPromise = fetch('/api/mapping-control/xano/categories', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : [])
-      .then(d => (Array.isArray(d) ? d : (d?.data && Array.isArray(d.data) ? d.data : [])))
+    const strapiCategoriesPromise = fetch('/api/categories?pagination[pageSize]=100', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : { data: [] })
+      .then(d => Array.isArray(d?.data) ? d.data : (Array.isArray(d) ? d : []))
       .catch(() => []);
-    const xanoCoursesPromise = fetch('/api/mapping-control/xano/courses', { credentials: 'include' })
+    const strapiCoursesPromise = fetch('/api/courses?populate=category&pagination[pageSize]=100', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : { data: [] })
+      .then(d => Array.isArray(d?.data) ? d.data : (Array.isArray(d) ? d : []))
+      .catch(() => []);
+    const xanoCatalogPromise = fetch('/api/mapping-control/xano/catalog', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : { categories: [], courses: [] })
+      .then(d => ({ categories: d?.categories ?? [], courses: d?.courses ?? [] }))
+      .catch(() => ({ categories: [], courses: [] }));
+    const xanoGradesPromise = fetch('/api/mapping-control/xano/grades', { credentials: 'include' })
       .then(r => r.ok ? r.json() : [])
-      .then(d => (Array.isArray(d) ? d : (d?.data && Array.isArray(d.data) ? d.data : [])))
+      .then(d => Array.isArray(d) ? d : (d?.data && Array.isArray(d.data) ? d.data : []))
+      .catch(() => []);
+    const xanoSchoolsPromise = fetch('/api/mapping-control/xano/schools', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : [])
+      .then(d => Array.isArray(d) ? d : (d?.data && Array.isArray(d.data) ? d.data : (d?.schools && Array.isArray(d.schools) ? d.schools : [])))
       .catch(() => []);
 
-    Promise.all([strapiCategoriesPromise, strapiCoursesPromise, xanoCategoriesPromise, xanoCoursesPromise]).then(([strapiCats, strapiCrs, xanoCats, xanoCrs]) => {
+    Promise.all([strapiCategoriesPromise, strapiCoursesPromise, xanoCatalogPromise, xanoGradesPromise, xanoSchoolsPromise]).then(([strapiCats, strapiCrs, xanoCatalog, xanoGrades, xanoSchools]) => {
       const byName = new Map();
-      (xanoCats || []).forEach(c => { const n = getCategoryName(c); const id = getCategoryId(c); if (n && !byName.has(n)) byName.set(n, { id, name: n }); });
+      (xanoCatalog.categories || []).forEach(c => { const n = getCategoryName(c); const id = getCategoryId(c); if (n && !byName.has(n)) byName.set(n, { id, name: n }); });
       (strapiCats || []).forEach(c => { const n = getCategoryName(c); const id = getCategoryId(c); if (n && !byName.has(n)) byName.set(n, { id, name: n }); });
+      const xanoCrs = Array.isArray(xanoCatalog.courses) ? xanoCatalog.courses : [];
+      const allCourses = [...(Array.isArray(strapiCrs) ? strapiCrs : []), ...xanoCrs];
+      if (byName.size === 0 && allCourses.length > 0) {
+        allCourses.forEach(c => {
+          const cat = c?.category ?? c?.attributes?.category;
+          const n = typeof cat === 'string' && cat.trim() ? cat.trim() : (cat?.name ?? cat?.attributes?.name);
+          const name = (n != null && String(n).trim()) ? String(n).trim() : null;
+          if (name && !byName.has(name)) byName.set(name, { id: name, name });
+        });
+      }
       setCategories(Array.from(byName.values()));
-      const allCourses = [...(Array.isArray(strapiCrs) ? strapiCrs : []), ...(Array.isArray(xanoCrs) ? xanoCrs : [])];
       setCourses(allCourses);
+      setGradesList(xanoGrades);
+      setSchoolsList(Array.isArray(xanoSchools) ? xanoSchools : []);
     });
   }, []);
-
-  React.useEffect(() => {
-    fetch('/api/mapping-control/xano/grades', { credentials: 'include' })
-      .then(r => {
-        if (!r.ok) return Promise.reject(new Error(r.status));
-        return r.json();
-      })
-      .then(d => setGradesList(Array.isArray(d) ? d : (d && Array.isArray(d.data) ? d.data : [])))
-      .catch(() => setGradesList([]));
-  }, []);
-
-  React.useEffect(() => {
-    if (userGroup !== 'school') {
-      setSchoolsList([]);
-      return;
-    }
-    setSchoolsLoading(true);
-    fetch('/api/mapping-control/xano/schools', { credentials: 'include' })
-      .then(r => {
-        if (!r.ok) return Promise.reject(new Error(r.status));
-        return r.json();
-      })
-      .then(d => setSchoolsList(Array.isArray(d) ? d : (d && Array.isArray(d.data) ? d.data : [])))
-      .catch(() => setSchoolsList([]))
-      .finally(() => setSchoolsLoading(false));
-  }, [userGroup]);
 
   React.useEffect(() => {
     const handleClickOutside = (e) => {
@@ -95,18 +91,11 @@ const MappingPage = () => {
       return;
     }
     setUserCountLoading(true);
-    let url = '/api/users?pagination[pageSize]=1&pagination[page]=1';
-    if (userGroup === 'premium') url += '&filters[subscription_type][$eq]=premium';
-    else if (userGroup === 'ultra') url += '&filters[subscription_type][$eq]=ultra';
-    if (selectedGrades.length > 0) {
-      url += selectedGrades.map(g => '&filters[grade][$in][]=' + g).join('');
-    }
-    fetch(url)
-      .then(r => r.json())
-      .then(d => {
-        const total = d?.meta?.pagination?.total ?? d?.pagination?.total ?? null;
-        setUserCount(typeof total === 'number' ? total : null);
-      })
+    const params = new URLSearchParams({ userGroup });
+    if (selectedGrades.length > 0) params.set('grades', selectedGrades.join(','));
+    fetch('/api/mapping-control/xano/user-count?' + params.toString(), { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+      .then(d => setUserCount(typeof d?.count === 'number' ? d.count : null))
       .catch(() => setUserCount(null))
       .finally(() => setUserCountLoading(false));
   }, [userGroup, selectedGrades]);
@@ -202,22 +191,35 @@ const MappingPage = () => {
   const confirm = async () => {
     const gradeVal = selectedGrades.length === 1 ? (Number(selectedGrades[0]) || selectedGrades[0]) : null;
     const schoolVal = userGroup === 'school' ? (selectedSchools.length > 0 ? selectedSchools.join(',') : null) : null;
-    for (const asset of selectedAssets) {
-      await fetch('/api/mappings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          data: {
-            asset_type: 'course',
-            asset_name: asset,
-            asset_id: 1,
-            subscription_type: userGroup || 'premium',
-            grade: gradeVal,
-            school_name: schoolVal,
-            is_active: true
-          }
-        })
-      });
+    const coursesInCategory = selectedCategoryId ? (coursesByCategory[selectedCategoryId] || []) : [];
+    const assets = selectedAssets.map((name) => {
+      const c = coursesInCategory.find((x) => getCourseTitle(x) === name) || courses.find((x) => getCourseTitle(x) === name);
+      const id = c ? getCourseId(c) : null;
+      return { type: 'course', id: id != null ? id : name, name };
+    });
+
+    const body = {
+      audience: {
+        userType: userGroup || 'premium',
+        grade: gradeVal,
+        gradeIds: selectedGrades.map((g) => Number(g) || g),
+        schools: userGroup === 'school' && selectedSchools.length ? selectedSchools : null,
+        school_name: schoolVal
+      },
+      assets,
+      rules: { accessType: 'full', expiryDate: null, assignmentMode: 'add' }
+    };
+
+    const res = await fetch('/api/mapping-control/assign', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error('Assign failed:', res.status, err);
+      return;
     }
     setSuccess(true);
   };
@@ -439,7 +441,7 @@ const MappingPage = () => {
             schoolsLoading
               ? React.createElement('div', { style: { padding: 12, color: '#666687' } }, 'Loading schools from Xano…')
               : schoolsList.length === 0
-                ? React.createElement('div', { style: { padding: 12, color: '#666687' } }, 'No schools in Xano. Set XANO_BASE_URL in .env and restart Strapi.')
+                ? React.createElement('div', { style: { padding: 12, color: '#666687' } }, 'No schools. Set XANO_MEMBERS_BASE_URL in lifemonk-cms/.env to your Members & Accounts URL (e.g. https://x8ki-letl-twmt.n7.xano.io/api:dwhFu4S5) and ensure get_all_schools exists there. Restart Strapi.')
                 : schoolsList.map(s =>
                   React.createElement('label', { key: getSchoolId(s), style: rowStyle },
                     React.createElement('input', { type: 'checkbox', checked: selectedSchools.includes(getSchoolId(s)), onChange: () => toggleSchool(getSchoolId(s)), style: checkboxStyle }),
