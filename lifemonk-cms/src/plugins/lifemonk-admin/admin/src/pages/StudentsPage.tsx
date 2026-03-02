@@ -35,7 +35,7 @@ export default function StudentsPage({ setCurrentPage }: { setCurrentPage: (p: s
   async function addStudent() {
     setSaving(true);
     try {
-      const res = await fetch(`${XANO_URL}/create_user`, {
+      const res = await fetch(`${XANO_URL}/create_student`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

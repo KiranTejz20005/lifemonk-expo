@@ -27,6 +27,7 @@ import {
   Alert,
   Loader,
 } from '@strapi/design-system';
+import { XANO_URL } from '../constants';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -136,6 +137,19 @@ export default function MappingPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState<null | { ok: boolean; count: number }>(null);
 
+  /* ----- system overview ----- */
+  const [courseCount, setCourseCount] = useState<number>(0);
+  const [users, setUsers] = useState<any[]>([]);
+  const [loadingStats, setLoadingStats] = useState<boolean>(true);
+
+  const totalUsers = users.length;
+  const premiumUsers = users.filter(
+    (u) => (u.subscription_type ?? u.user_type ?? '').toLowerCase() === 'premium'
+  ).length;
+  const ultraUsers = users.filter(
+    (u) => (u.subscription_type ?? u.user_type ?? '').toLowerCase() === 'ultra'
+  ).length;
+
   /* ----- derived audience count ----- */
   const audienceCount = useCallback(() => {
     if (audience.userType === 'Specific Users') return audience.specificUsers.length;
@@ -143,6 +157,33 @@ export default function MappingPage() {
     if (audience.userType.startsWith('All')) return '∞ (all matching)';
     return 0;
   }, [audience]);
+
+  /* ----- load system overview on mount ----- */
+  useEffect(() => {
+    const loadStats = async () => {
+      try {
+        setLoadingStats(true);
+
+        const res = await fetch(`${STRAPI_BASE}/api/courses?pagination[pageSize]=1`, {
+          headers: { Authorization: `Bearer ${window.sessionStorage.getItem('jwtToken') ?? ''}` },
+        });
+        const courseData = await res.json();
+        setCourseCount(courseData?.meta?.pagination?.total ?? 0);
+
+        if (XANO_URL) {
+          const userData = await fetch(`${XANO_URL}/get_all_users`).then((r) => r.json()).catch(() => []);
+          setUsers(Array.isArray(userData) ? userData : []);
+        } else {
+          setUsers([]);
+        }
+      } catch (err) {
+        console.error('System overview load failed:', err);
+      } finally {
+        setLoadingStats(false);
+      }
+    };
+    loadStats();
+  }, []);
 
   /* ----- fetch assets on mount ----- */
   useEffect(() => {
@@ -289,22 +330,21 @@ export default function MappingPage() {
           </SingleSelect>
         </Box>
 
-        {audience.userType === 'School' && (
-          <Box style={{ flex: 1, minWidth: 220 }}>
-            <SingleSelect
-              label="Select Grade"
-              placeholder="Choose grade…"
-              value={audience.grade}
-              onChange={(v: string) => setAudience((a) => ({ ...a, grade: v }))}
-            >
-              {GRADES.map((g) => (
-                <SingleSelectOption key={g} value={g}>
-                  {g}
-                </SingleSelectOption>
-              ))}
-            </SingleSelect>
-          </Box>
-        )}
+        <Box style={{ flex: 1, minWidth: 220 }}>
+          <SingleSelect
+            label="Select Grades"
+            placeholder="Choose grade…"
+            value={audience.grade}
+            onChange={(v: string) => setAudience((a) => ({ ...a, grade: v }))}
+            disabled={audience.userType !== 'School'}
+          >
+            {GRADES.map((g) => (
+              <SingleSelectOption key={g} value={g}>
+                {g}
+              </SingleSelectOption>
+            ))}
+          </SingleSelect>
+        </Box>
       </Flex>
 
       {audience.userType === 'Specific Users' && (
@@ -563,6 +603,44 @@ export default function MappingPage() {
       <Typography variant="epsilon" textColor="neutral600" style={{ marginBottom: 24 }}>
         Assign courses, workshops, books & content to audiences in 4 easy steps.
       </Typography>
+
+      <Box
+        padding={6}
+        background="neutral100"
+        hasRadius
+        shadow="filterShadow"
+        marginBottom={6}
+      >
+        <Typography variant="alpha" fontWeight="bold">
+          System Overview
+        </Typography>
+        <Flex gap={4} marginTop={4}>
+          <Box background="neutral200" padding={4} hasRadius>
+            <Typography>Total Courses</Typography>
+            <Typography variant="beta">
+              {loadingStats ? '...' : courseCount}
+            </Typography>
+          </Box>
+          <Box background="neutral200" padding={4} hasRadius>
+            <Typography>Total Users</Typography>
+            <Typography variant="beta">
+              {loadingStats ? '...' : totalUsers}
+            </Typography>
+          </Box>
+          <Box background="danger100" padding={4} hasRadius>
+            <Typography>Premium Users</Typography>
+            <Typography variant="beta">
+              {loadingStats ? '...' : premiumUsers}
+            </Typography>
+          </Box>
+          <Box background="warning100" padding={4} hasRadius>
+            <Typography>Ultra Users</Typography>
+            <Typography variant="beta">
+              {loadingStats ? '...' : ultraUsers}
+            </Typography>
+          </Box>
+        </Flex>
+      </Box>
 
       {renderStepIndicator()}
 

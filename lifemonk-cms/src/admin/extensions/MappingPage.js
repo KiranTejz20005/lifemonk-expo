@@ -4,44 +4,102 @@ const getCategoryId = (cat) => cat?.documentId ?? cat?.id ?? '';
 const getCategoryName = (cat) => cat?.name ?? cat?.attributes?.name ?? 'Uncategorized';
 const getCourseCategoryId = (c) => {
   const cat = c?.category ?? c?.attributes?.category;
-  const data = cat?.data ?? cat;
+  if (typeof cat === 'string' && cat.trim()) return cat.trim();
+  const data = cat?.data ?? (typeof cat === 'object' && cat !== null ? cat : null);
   return data ? (data.documentId ?? data.id ?? '') : null;
 };
 const getCourseTitle = (c) => c?.attributes?.title ?? c?.title ?? 'Untitled';
 
 const MappingPage = () => {
-  const [userType, setUserType] = React.useState('premium');
-  const [grade, setGrade] = React.useState('');
-  const [schoolName, setSchoolName] = React.useState('');
+  const [userGroup, setUserGroup] = React.useState('');
+  const [selectedGrades, setSelectedGrades] = React.useState([]);
+  const [selectedSchools, setSelectedSchools] = React.useState([]);
+  const [gradesList, setGradesList] = React.useState([]);
+  const [schoolsList, setSchoolsList] = React.useState([]);
+  const [schoolsLoading, setSchoolsLoading] = React.useState(false);
+  const [gradesOpen, setGradesOpen] = React.useState(false);
+  const [schoolsOpen, setSchoolsOpen] = React.useState(false);
   const [categories, setCategories] = React.useState([]);
   const [courses, setCourses] = React.useState([]);
   const [selectedCategoryId, setSelectedCategoryId] = React.useState('');
   const [selectedAssets, setSelectedAssets] = React.useState([]);
   const [userCount, setUserCount] = React.useState(null);
   const [userCountLoading, setUserCountLoading] = React.useState(false);
+  const [previewUserCount, setPreviewUserCount] = React.useState(null);
+  const [previewUserCountLoading, setPreviewUserCountLoading] = React.useState(false);
   const [success, setSuccess] = React.useState(false);
+  const gradesRef = React.useRef(null);
+  const schoolsRef = React.useRef(null);
 
   React.useEffect(() => {
-    Promise.all([
-      fetch('/api/categories?pagination[pageSize]=100').then(r => r.json()).then(d => setCategories(d.data || [])),
-      fetch('/api/courses?populate=category&pagination[pageSize]=100').then(r => r.json()).then(d => setCourses(d.data || []))
-    ]).catch(() => { setCategories([]); setCourses([]); });
+    const strapiCategoriesPromise = fetch('/api/categories?pagination[pageSize]=100').then(r => r.json()).then(d => d.data || []).catch(() => []);
+    const strapiCoursesPromise = fetch('/api/courses?populate=category&pagination[pageSize]=100').then(r => r.json()).then(d => d.data || []).catch(() => []);
+    const xanoCategoriesPromise = fetch('/api/mapping-control/xano/categories', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : [])
+      .then(d => (Array.isArray(d) ? d : (d?.data && Array.isArray(d.data) ? d.data : [])))
+      .catch(() => []);
+    const xanoCoursesPromise = fetch('/api/mapping-control/xano/courses', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : [])
+      .then(d => (Array.isArray(d) ? d : (d?.data && Array.isArray(d.data) ? d.data : [])))
+      .catch(() => []);
+
+    Promise.all([strapiCategoriesPromise, strapiCoursesPromise, xanoCategoriesPromise, xanoCoursesPromise]).then(([strapiCats, strapiCrs, xanoCats, xanoCrs]) => {
+      const byName = new Map();
+      (xanoCats || []).forEach(c => { const n = getCategoryName(c); const id = getCategoryId(c); if (n && !byName.has(n)) byName.set(n, { id, name: n }); });
+      (strapiCats || []).forEach(c => { const n = getCategoryName(c); const id = getCategoryId(c); if (n && !byName.has(n)) byName.set(n, { id, name: n }); });
+      setCategories(Array.from(byName.values()));
+      const allCourses = [...(Array.isArray(strapiCrs) ? strapiCrs : []), ...(Array.isArray(xanoCrs) ? xanoCrs : [])];
+      setCourses(allCourses);
+    });
   }, []);
 
   React.useEffect(() => {
-    setUserCount(null);
+    fetch('/api/mapping-control/xano/grades', { credentials: 'include' })
+      .then(r => {
+        if (!r.ok) return Promise.reject(new Error(r.status));
+        return r.json();
+      })
+      .then(d => setGradesList(Array.isArray(d) ? d : (d && Array.isArray(d.data) ? d.data : [])))
+      .catch(() => setGradesList([]));
+  }, []);
+
+  React.useEffect(() => {
+    if (userGroup !== 'school') {
+      setSchoolsList([]);
+      return;
+    }
+    setSchoolsLoading(true);
+    fetch('/api/mapping-control/xano/schools', { credentials: 'include' })
+      .then(r => {
+        if (!r.ok) return Promise.reject(new Error(r.status));
+        return r.json();
+      })
+      .then(d => setSchoolsList(Array.isArray(d) ? d : (d && Array.isArray(d.data) ? d.data : [])))
+      .catch(() => setSchoolsList([]))
+      .finally(() => setSchoolsLoading(false));
+  }, [userGroup]);
+
+  React.useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (gradesRef.current && !gradesRef.current.contains(e.target)) setGradesOpen(false);
+      if (schoolsRef.current && !schoolsRef.current.contains(e.target)) setSchoolsOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  React.useEffect(() => {
+    if (!userGroup || userGroup === 'school') {
+      setUserCount(null);
+      setUserCountLoading(false);
+      return;
+    }
     setUserCountLoading(true);
     let url = '/api/users?pagination[pageSize]=1&pagination[page]=1';
-    if (userType === 'school' && schoolName) {
-      url += '&filters[school_name][$eq]=' + encodeURIComponent(schoolName);
-    } else if (userType === 'grade' && grade) {
-      url += '&filters[grade][$eq]=' + encodeURIComponent(grade);
-    } else if (userType === 'premium') {
-      url += '&filters[subscription_type][$eq]=premium';
-    } else if (userType === 'ultra') {
-      url += '&filters[subscription_type][$eq]=ultra';
-    } else if (userType === 'basic') {
-      url += '&filters[subscription_type][$eq]=basic';
+    if (userGroup === 'premium') url += '&filters[subscription_type][$eq]=premium';
+    else if (userGroup === 'ultra') url += '&filters[subscription_type][$eq]=ultra';
+    if (selectedGrades.length > 0) {
+      url += selectedGrades.map(g => '&filters[grade][$in][]=' + g).join('');
     }
     fetch(url)
       .then(r => r.json())
@@ -51,7 +109,85 @@ const MappingPage = () => {
       })
       .catch(() => setUserCount(null))
       .finally(() => setUserCountLoading(false));
-  }, [userType, grade, schoolName]);
+  }, [userGroup, selectedGrades]);
+
+  React.useEffect(() => {
+    if (!userGroup) {
+      setPreviewUserCount(null);
+      setPreviewUserCountLoading(false);
+      return;
+    }
+    setPreviewUserCountLoading(true);
+    const params = new URLSearchParams({ userGroup });
+    if (selectedGrades.length) params.set('grades', selectedGrades.join(','));
+    if (userGroup === 'school' && selectedSchools.length) params.set('schools', selectedSchools.join(','));
+    fetch('/api/mapping-control/xano/user-count?' + params.toString(), { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+      .then(d => setPreviewUserCount(typeof d?.count === 'number' ? d.count : 0))
+      .catch(() => setPreviewUserCount(0))
+      .finally(() => setPreviewUserCountLoading(false));
+  }, [userGroup, selectedGrades, selectedSchools]);
+
+  const getGradeId = (g) => {
+    if (g == null) return null;
+    if (typeof g === 'number' || typeof g === 'string') return g;
+    return g.id ?? g.number ?? g.level_number ?? null;
+  };
+  const getGradeSortKey = (g) => {
+    if (g == null) return Infinity;
+    const id = getGradeId(g);
+    if (typeof id === 'number' && Number.isFinite(id)) return id;
+    if (typeof id === 'string') {
+      const n = parseInt(id, 10);
+      if (!Number.isNaN(n)) return n;
+    }
+    const num = g?.level_number ?? g?.number;
+    if (typeof num === 'number' && Number.isFinite(num)) return num;
+    return Infinity;
+  };
+  const getGradeLabel = (g) => {
+    if (g == null) return 'Grade';
+    if (typeof g === 'string') return g;
+    if (typeof g === 'number') return 'Grade ' + g;
+    const name = g.name ?? g.attributes?.name;
+    if (name != null && String(name).trim()) return String(name).trim();
+    const num = g.level_number ?? g.number;
+    if (typeof num === 'number') return 'Grade ' + num;
+    const id = getGradeId(g);
+    return id != null ? 'Grade ' + id : 'Grade';
+  };
+  const sortedGradesList = React.useMemo(() =>
+    [...gradesList].sort((a, b) => getGradeSortKey(a) - getGradeSortKey(b)),
+    [gradesList]
+  );
+
+  const toggleGrade = (gradeId) => {
+    setSelectedGrades(prev => prev.includes(gradeId) ? prev.filter(x => x !== gradeId) : [...prev, gradeId]);
+  };
+  const gradesSelectAll = () => {
+    const ids = gradesList.map(getGradeId);
+    setSelectedGrades(selectedGrades.length === ids.length ? [] : ids);
+  };
+  const toggleSchool = (idOrName) => {
+    setSelectedSchools(prev => prev.includes(idOrName) ? prev.filter(x => x !== idOrName) : [...prev, idOrName]);
+  };
+  const getSchoolId = (s) => {
+    if (s == null) return null;
+    if (typeof s === 'number' || typeof s === 'string') return s;
+    return s.id ?? s.documentId ?? s.name ?? null;
+  };
+  const getSchoolName = (s) => {
+    if (s == null) return 'School';
+    if (typeof s === 'string') return s;
+    const name = s.name ?? s.attributes?.name;
+    if (name != null && String(name).trim()) return String(name).trim();
+    const id = getSchoolId(s);
+    return id != null ? 'School ' + id : 'School';
+  };
+  const schoolsSelectAll = () => {
+    const ids = schoolsList.map(getSchoolId);
+    setSelectedSchools(selectedSchools.length === ids.length ? [] : ids);
+  };
 
   const toggleAsset = (name) => {
     setSelectedAssets(prev =>
@@ -64,6 +200,8 @@ const MappingPage = () => {
   };
 
   const confirm = async () => {
+    const gradeVal = selectedGrades.length === 1 ? (Number(selectedGrades[0]) || selectedGrades[0]) : null;
+    const schoolVal = userGroup === 'school' ? (selectedSchools.length > 0 ? selectedSchools.join(',') : null) : null;
     for (const asset of selectedAssets) {
       await fetch('/api/mappings', {
         method: 'POST',
@@ -73,9 +211,9 @@ const MappingPage = () => {
             asset_type: 'course',
             asset_name: asset,
             asset_id: 1,
-            subscription_type: userType,
-            grade: grade ? parseInt(grade) : null,
-            school_name: schoolName || null,
+            subscription_type: userGroup || 'premium',
+            grade: gradeVal,
+            school_name: schoolVal,
             is_active: true
           }
         })
@@ -204,18 +342,36 @@ const MappingPage = () => {
   const tagRemoveStyle = { cursor: 'pointer', color: '#666687', fontSize: 14, border: 'none', background: 'none', padding: 0, lineHeight: 1 };
 
   const getAudienceLabel = () => {
-    if (userType === 'grade' && grade) return 'Grade ' + grade + ' students';
-    if (userType === 'school' && schoolName) return 'School users';
-    if (userType === 'all') return 'All users';
-    if (userType === 'premium') return 'Premium users';
-    if (userType === 'ultra') return 'Ultra users';
-    if (userType === 'basic') return 'Basic users';
-    return 'Selected audience';
+    if (userGroup === 'school') return selectedSchools.length > 0 ? selectedSchools.length + ' school(s)' : 'All Schools';
+    if (userGroup === 'all') return 'All User Groups';
+    if (userGroup === 'premium') return 'Premium';
+    if (userGroup === 'ultra') return 'Ultra';
+    return 'Select';
   };
 
-  const userCountLine = userCountLoading
-    ? 'Loading user count…'
-    : (userCount != null ? getAudienceLabel() + ': ' + userCount + ' users' : getAudienceLabel());
+  const panelStyle = {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    marginTop: 4,
+    background: '#fff',
+    border: '1px solid #dcdce4',
+    borderRadius: 6,
+    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+    maxHeight: 280,
+    overflowY: 'auto',
+    zIndex: 1000,
+    padding: 8
+  };
+  const triggerStyle = {
+    ...inputSelectStyle,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  };
+  const rowStyle = { display: 'flex', alignItems: 'center', padding: '8px 12px', cursor: 'pointer' };
 
   return React.createElement('div', { style: pageStyle },
     React.createElement('h1', { style: { color: '#32324d', fontSize: 24, fontWeight: 700, marginBottom: 8 } }, 'Mapping Control Center'),
@@ -223,42 +379,75 @@ const MappingPage = () => {
 
     React.createElement('div', { style: cardStyle },
       React.createElement('h2', { style: headingStyle }, '1. Select Audience'),
-      React.createElement('label', { style: labelStyle }, 'User Type'),
-      React.createElement('select', {
-        style: { ...inputSelectStyle, cursor: 'pointer' },
-        value: userType,
-        onChange: e => setUserType(e.target.value)
-      },
-        React.createElement('option', { value: 'all' }, 'All Users'),
-        React.createElement('option', { value: 'basic' }, 'Basic Users'),
-        React.createElement('option', { value: 'premium' }, 'Premium Users'),
-        React.createElement('option', { value: 'ultra' }, 'Ultra Users'),
-        React.createElement('option', { value: 'school' }, 'School'),
-        React.createElement('option', { value: 'grade' }, 'By Grade'),
-      ),
-      userType === 'school' && React.createElement('div', { style: { marginTop: 16 } },
-        React.createElement('label', { style: labelStyle }, 'School Name'),
-        React.createElement('input', {
-          style: inputSelectStyle,
-          placeholder: 'Enter school name',
-          value: schoolName,
-          onChange: e => setSchoolName(e.target.value)
-        })
-      ),
-      userType === 'grade' && React.createElement('div', { style: { marginTop: 16 } },
-        React.createElement('label', { style: labelStyle }, 'Select Grade'),
-        React.createElement('select', {
-          style: { ...inputSelectStyle, cursor: 'pointer' },
-          value: grade,
-          onChange: e => setGrade(e.target.value)
-        },
-          [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(g =>
-            React.createElement('option', { key: g, value: String(g) }, 'Grade ' + g)
+      React.createElement('div', { style: { display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 16 } },
+        React.createElement('div', { style: { flex: 1, minWidth: 200 } },
+          React.createElement('label', { style: labelStyle }, 'Select User Group'),
+          React.createElement('select', {
+            style: { ...inputSelectStyle, cursor: 'pointer' },
+            value: userGroup,
+            onChange: e => setUserGroup(e.target.value)
+          },
+            React.createElement('option', { value: '' }, 'Select'),
+            React.createElement('option', { value: 'all' }, 'All User Groups'),
+            React.createElement('option', { value: 'premium' }, 'Premium'),
+            React.createElement('option', { value: 'ultra' }, 'Ultra'),
+            React.createElement('option', { value: 'school' }, 'Select School'),
+          )
+        ),
+        userGroup !== 'school' && userGroup !== '' && React.createElement('div', { style: { flex: 1, minWidth: 200, position: 'relative' }, ref: gradesRef },
+          React.createElement('label', { style: labelStyle }, 'Select Grades'),
+          React.createElement('div',
+            {
+              style: triggerStyle,
+              onClick: () => setGradesOpen(!gradesOpen),
+              'aria-expanded': gradesOpen
+            },
+            React.createElement('span', null, selectedGrades.length === 0 ? 'Select' : selectedGrades.length === gradesList.length && gradesList.length > 0 ? 'All Grades' : selectedGrades.map(id => gradesList.find(g => getGradeId(g) === id)).filter(Boolean).map(getGradeLabel).join(', ') || selectedGrades.length + ' selected'),
+            React.createElement('span', { style: { fontSize: 12 } }, gradesOpen ? '▲' : '▼')
+          ),
+          gradesOpen && React.createElement('div', { style: panelStyle },
+            React.createElement('label', { style: rowStyle },
+              React.createElement('input', { type: 'checkbox', checked: gradesList.length > 0 && selectedGrades.length === gradesList.length, onChange: gradesSelectAll, style: checkboxStyle }),
+              'Select All'
+            ),
+            gradesList.length === 0
+              ? React.createElement('div', { style: { padding: 12, color: '#666687' } }, 'No grades from Xano. Set XANO_BASE_URL (and XANO_MEMBERS_BASE_URL) in Strapi .env to your Members & Accounts API base (e.g. https://your-instance.n7.xano.io/api:GROUP_ID) and ensure get_all_grades is deployed there.')
+              : sortedGradesList.map(g =>
+                  React.createElement('label', { key: getGradeId(g), style: rowStyle },
+                    React.createElement('input', { type: 'checkbox', checked: selectedGrades.includes(getGradeId(g)), onChange: () => toggleGrade(getGradeId(g)), style: checkboxStyle }),
+                    React.createElement('span', { style: { marginLeft: 8, color: '#32324d', fontSize: 14 } }, getGradeLabel(g))
+                  )
+                )
+          )
+        ),
+        userGroup === 'school' && React.createElement('div', { style: { flex: 1, minWidth: 200, position: 'relative' }, ref: schoolsRef },
+          React.createElement('label', { style: labelStyle }, 'Select Schools'),
+          React.createElement('div',
+            {
+              style: triggerStyle,
+              onClick: () => setSchoolsOpen(!schoolsOpen),
+              'aria-expanded': schoolsOpen
+            },
+            React.createElement('span', null, selectedSchools.length === 0 ? 'All Schools' : selectedSchools.length === schoolsList.length ? 'All Schools' : selectedSchools.length + ' school(s) selected'),
+            React.createElement('span', { style: { fontSize: 12 } }, schoolsOpen ? '▲' : '▼')
+          ),
+          schoolsOpen && React.createElement('div', { style: panelStyle },
+            React.createElement('label', { style: rowStyle },
+              React.createElement('input', { type: 'checkbox', checked: schoolsList.length > 0 && selectedSchools.length === schoolsList.length, onChange: schoolsSelectAll, style: checkboxStyle }),
+              'Select All'
+            ),
+            schoolsLoading
+              ? React.createElement('div', { style: { padding: 12, color: '#666687' } }, 'Loading schools from Xano…')
+              : schoolsList.length === 0
+                ? React.createElement('div', { style: { padding: 12, color: '#666687' } }, 'No schools in Xano. Set XANO_BASE_URL in .env and restart Strapi.')
+                : schoolsList.map(s =>
+                  React.createElement('label', { key: getSchoolId(s), style: rowStyle },
+                    React.createElement('input', { type: 'checkbox', checked: selectedSchools.includes(getSchoolId(s)), onChange: () => toggleSchool(getSchoolId(s)), style: checkboxStyle }),
+                    React.createElement('span', { style: { marginLeft: 8, color: '#32324d', fontSize: 14 } }, getSchoolName(s))
+                  )
+                )
           )
         )
-      ),
-      React.createElement('div', { style: userCountBoxStyle },
-        '👥 ', userCountLine, ' will receive this mapping.'
       )
     ),
 
@@ -324,8 +513,22 @@ const MappingPage = () => {
     React.createElement('div', { style: cardStyle },
       React.createElement('h2', { style: headingStyle }, '3. Preview & Confirm'),
       React.createElement('div', { style: summaryBoxStyle },
-        React.createElement('p', { style: { marginBottom: 8 } }, 'Audience: ' + userType + (grade ? ' — Grade ' + grade : '') + (schoolName ? ' — ' + schoolName : '')),
-        React.createElement('p', { style: { margin: 0 } }, 'Assets: ' + (selectedAssets.length ? selectedAssets.join(', ') : 'None selected'))
+        React.createElement('p', { style: { marginBottom: 8, fontWeight: 600 } }, 'Audience Type:', ' ', (() => {
+          if (!userGroup) return 'Select';
+          const gLabels = selectedGrades.length ? selectedGrades.map(id => gradesList.find(g => getGradeId(g) === id)).filter(Boolean).map(getGradeLabel) : [];
+          const gradePart = gLabels.length === 1 ? gLabels[0] : (gLabels.length > 1 ? gLabels.join(', ') : '');
+          if (userGroup === 'school') return 'School' + (gradePart ? ' - ' + gradePart : '') + (selectedSchools.length ? ' (' + selectedSchools.length + ' school(s))' : '');
+          if (userGroup === 'all') return 'All User Groups' + (gradePart ? ' - ' + gradePart : '');
+          const label = userGroup === 'premium' ? 'Premium' : userGroup === 'ultra' ? 'Ultra' : userGroup;
+          return label + (gradePart ? ' - ' + gradePart : '');
+        })()),
+        React.createElement('p', { style: { marginBottom: 12, fontWeight: 600 } }, 'Total Users: ', previewUserCountLoading ? '…' : (previewUserCount !== null ? String(previewUserCount) : '—')),
+        React.createElement('p', { style: { marginBottom: 6, fontWeight: 600 } }, 'Assets to be Assigned:'),
+        selectedAssets.length === 0
+          ? React.createElement('p', { style: { margin: 0, paddingLeft: 16, color: '#666687' } }, 'None selected')
+          : React.createElement('ul', { style: { margin: 0, paddingLeft: 20 } },
+              selectedAssets.map(name => React.createElement('li', { key: name, style: { marginBottom: 4 } }, name))
+            )
       ),
       success && React.createElement('p', { style: successText }, 'Mapping saved successfully.'),
       React.createElement('button', { style: btnStyle, onClick: confirm }, 'Confirm Assignment')

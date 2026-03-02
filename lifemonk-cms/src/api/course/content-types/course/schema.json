@@ -81,6 +81,9 @@
     },
     "xano_course_id": {
       "type": "integer"
+    },
+    "strapi_document_id": {
+      "type": "string"
     }
   }
 }

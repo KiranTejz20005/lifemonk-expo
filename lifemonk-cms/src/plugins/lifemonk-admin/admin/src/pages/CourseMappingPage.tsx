@@ -103,8 +103,8 @@ export default function CourseMappingPage({ setCurrentPage }: { setCurrentPage: 
         return;
       }
 
-      // Step 2: POST Xano save_entitlement
-      const entRes = await fetch(`${XANO_URL}/save_entitlement`, {
+      // Step 2: POST Xano upsert_entitlement (creates or updates by content_id)
+      const entRes = await fetch(`${XANO_URL}/upsert_entitlement`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -120,7 +120,7 @@ export default function CourseMappingPage({ setCurrentPage }: { setCurrentPage: 
       });
       if (!entRes.ok) {
         const errText = await entRes.text();
-        throw new Error(errText || 'save_entitlement failed');
+        throw new Error(errText || 'upsert_entitlement failed');
       }
 
       // Step 3: POST Xano sync_course

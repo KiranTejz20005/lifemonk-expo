@@ -502,6 +502,7 @@ export interface ApiChapterChapter extends Struct.CollectionTypeSchema {
     lock_depends_on_order: Schema.Attribute.Integer;
     order: Schema.Attribute.Integer & Schema.Attribute.Required;
     publishedAt: Schema.Attribute.DateTime;
+    strapi_document_id: Schema.Attribute.String;
     thumbnail: Schema.Attribute.Media<'images'>;
     title: Schema.Attribute.String & Schema.Attribute.Required;
     updatedAt: Schema.Attribute.DateTime;
@@ -547,6 +548,7 @@ export interface ApiCourseCourse extends Struct.CollectionTypeSchema {
     order: Schema.Attribute.Integer & Schema.Attribute.DefaultTo<0>;
     publishedAt: Schema.Attribute.DateTime;
     short_description: Schema.Attribute.Text;
+    strapi_document_id: Schema.Attribute.String;
     title: Schema.Attribute.String & Schema.Attribute.Required;
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
@@ -569,6 +571,11 @@ export interface ApiMappingMapping extends Struct.CollectionTypeSchema {
   };
   options: {
     draftAndPublish: true;
+  };
+  pluginOptions: {
+    'content-manager': {
+      visible: false;
+    };
   };
   attributes: {
     asset_id: Schema.Attribute.Integer & Schema.Attribute.Required;

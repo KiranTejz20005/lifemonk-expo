@@ -11,7 +11,7 @@ export default {
   register(app: any) {
     app.addMenuLink({
       to: `/plugins/${PLUGIN_ID}`,
-      icon: () => null, // icon provided in admin/src/index.tsx
+      icon: 'link',
       intlLabel: {
         id: `${PLUGIN_ID}.plugin.name`,
         defaultMessage: 'Mapping Control',

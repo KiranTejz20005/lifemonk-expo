@@ -75,6 +75,9 @@
     },
     "xano_chapter_id": {
       "type": "integer"
+    },
+    "strapi_document_id": {
+      "type": "string"
     }
   }
 }
