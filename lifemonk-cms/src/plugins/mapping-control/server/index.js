@@ -29,6 +29,7 @@ const routeList = [
   { method: 'GET', path: '/xano/catalog', handler: 'xanoController.catalog', config: { auth: false, policies: [] } },
   { method: 'GET', path: '/xano/user-count', handler: 'xanoController.userCount', config: { auth: false, policies: [] } },
   { method: 'GET', path: '/xano/user-courses', handler: 'xanoController.userCourses', config: { auth: false, policies: [] } },
+  { method: 'GET', path: '/xano/other-assets', handler: 'xanoController.otherAssets', config: { auth: false, policies: [] } },
 ];
 
 // Strapi 5: export routes as object so we can use type 'content-api' and prefix for /api/mapping-control/...
@@ -45,12 +46,14 @@ const controllers = {
     async assign(ctx) {
       const { audience, assets, rules } = ctx.request.body || {};
       let userType = audience?.userType || audience?.subscription_type || 'premium';
-      if (userType === 'school' || userType === 'all') userType = 'premium';
-      if (!['basic', 'premium', 'ultra'].includes(userType)) userType = 'premium';
+      if (userType === 'school') userType = 'premium';
+      if (userType === 'all') userType = null; // null = applies to all subscription types
+      if (userType != null && !['basic', 'premium', 'ultra'].includes(userType)) userType = 'premium';
       const grade = audience?.grade ?? null;
       const schools = audience?.schools ?? audience?.school_name ?? null;
       const schoolId = Array.isArray(schools) && schools.length > 0 ? schools[0] : (typeof schools === 'string' && schools ? schools.split(',')[0].trim() : null);
-      const gradeIds = Array.isArray(audience?.gradeIds) ? audience.gradeIds : (grade != null ? [Number(grade)] : []);
+      const rawGradeIds = Array.isArray(audience?.gradeIds) ? audience.gradeIds : (grade != null ? [Number(grade)] : []);
+      const gradeIds = rawGradeIds.filter((g) => g != null && g !== '').map((g) => Number(g)).filter((n) => !Number.isNaN(n));
 
       const results = [];
       const xano = getXanoClient();
@@ -77,25 +80,26 @@ const controllers = {
         });
         results.push(entry);
 
-        if (canCallXano && assetType === 'course' && (assetId || assetName)) {
+        if (canCallXano && (assetId || assetName)) {
           const contentId = String(assetId || assetName);
           const numericCourseId = typeof assetId === 'number' && Number.isFinite(assetId) ? assetId : (parseInt(String(assetId), 10) || null);
+          const schoolIdNum = schoolId != null && schoolId !== '' ? parseInt(String(schoolId), 10) : 0;
           const payload = {
-            content_type: 'course',
+            content_type: assetType,
             content_id: contentId,
             content_title: assetName,
             grade_ids: gradeIds,
-            subscription_type: userType,
-            school_id: schoolId ? parseInt(String(schoolId), 10) || 0 : 0,
+            subscription_type: userType ?? undefined, // null when "All User Groups"
+            school_id: Number.isNaN(schoolIdNum) ? 0 : schoolIdNum,
             is_active: true,
             assigned_by: 1,
           };
-          if (numericCourseId != null) payload.course_id = numericCourseId;
+          if (assetType === 'course' && numericCourseId != null) payload.course_id = numericCourseId;
           const res = await xano.post('upsert_entitlement', payload, { base: 'courses' });
           if (!res.ok) {
-            console.warn('[mapping-control] Xano upsert_entitlement failed:', res.status, contentId, '- Check XANO_COURSES_BASE_URL and that POST upsert_entitlement exists in that API group.');
+            console.warn('[mapping-control] Xano upsert_entitlement failed:', res.status, assetType, contentId, '- Check XANO_COURSES_BASE_URL and that POST upsert_entitlement exists.');
           } else {
-            console.log('[mapping-control] Xano entitlement saved 200 for', contentId);
+            console.log('[mapping-control] Xano entitlement saved 200 for', assetType, contentId);
           }
         }
       }
@@ -253,6 +257,27 @@ const controllers = {
       });
       categories.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
       ctx.send({ categories, courses });
+    },
+    async otherAssets(ctx) {
+      const type = (ctx.query && ctx.query.type) || '';
+      const xano = getXanoClient();
+      if (!xano.hasValidBase(xano.getBaseUrl('courses'))) {
+        ctx.send([]);
+        return;
+      }
+      const endpointMap = { workshop: 'get_workshops', book: 'get_books', byte: 'get_bytes', brain_teaser: 'get_brain_teasers', current_affairs: 'get_current_affairs' };
+      const endpoint = endpointMap[type] || (type ? `get_${type}` : null);
+      let list = [];
+      if (endpoint) {
+        try {
+          const data = await xano.get(endpoint, { base: 'courses' });
+          list = toArray(data);
+        } catch (_) {
+          list = [];
+        }
+      }
+      const items = list.map((x, i) => ({ id: x.id ?? x.documentId ?? i + 1, name: x.title ?? x.name ?? x.attributes?.title ?? `Item ${i + 1}` }));
+      ctx.send(items);
     },
   },
 };

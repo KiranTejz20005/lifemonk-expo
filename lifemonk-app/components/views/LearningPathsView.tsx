@@ -6,7 +6,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 
 import { LifeMonkColors, LifeMonkSpacing } from '@/constants/lifemonk-theme';
 import {
-  getHomeScreenCourses,
+  getXanoCatalogCourses,
   getCategories,
   type Category,
   type Course,
@@ -124,8 +124,8 @@ export function LearningPathsView({ onBack }: { onBack?: () => void }) {
     setLoading(true);
     setError(null);
     try {
-      const data = await getHomeScreenCourses();
-      console.log('Total courses loaded:', data.length);
+      const data = await getXanoCatalogCourses();
+      console.log('Entitled courses loaded:', data.length);
 
       const [strapiCats, student] = await Promise.all([
         getCategories().catch(() => []),
@@ -165,20 +165,10 @@ export function LearningPathsView({ onBack }: { onBack?: () => void }) {
     load();
   }, [load]);
 
-  const visibleCourses = React.useMemo(() => {
-    return courses.filter((c) => {
-      const v = c.user_type_visibility || 'all';
-      if (v === 'all') return true;
-      if (v === 'ultra_only') return userType === 'ultra';
-      if (v === 'premium_ultra') return userType !== 'school';
-      return true;
-    });
-  }, [courses, userType]);
-
   const filteredByCategory = React.useMemo(() => {
-    if (selectedCategory === ALL_CATEGORIES) return visibleCourses;
-    return visibleCourses.filter((c) => (c.category || 'Uncategorized') === selectedCategory);
-  }, [visibleCourses, selectedCategory]);
+    if (selectedCategory === ALL_CATEGORIES) return courses;
+    return courses.filter((c) => (c.category || 'Uncategorized') === selectedCategory);
+  }, [courses, selectedCategory]);
 
   const grouped = React.useMemo(() => {
     const acc: Record<string, MergedCourse[]> = {};
@@ -336,7 +326,7 @@ export function LearningPathsView({ onBack }: { onBack?: () => void }) {
           {Object.keys(grouped).length === 0 ? (
             <View style={styles.emptyWrap}>
               <Text style={styles.emptyText}>
-                {noCoursesForGrade ? 'No courses available for your grade yet' : 'No courses yet.'}
+                {noCoursesForGrade ? 'No courses assigned to you yet' : 'No courses yet.'}
               </Text>
               <Text style={styles.emptySubtext}>Check back later or try another category.</Text>
             </View>

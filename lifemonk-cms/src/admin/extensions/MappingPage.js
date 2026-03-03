@@ -11,6 +11,14 @@ const getCourseCategoryId = (c) => {
 const getCourseTitle = (c) => c?.attributes?.title ?? c?.title ?? 'Untitled';
 const getCourseId = (c) => c?.id ?? c?.documentId ?? c?.attributes?.documentId ?? c?.strapi_document_id ?? null;
 
+const OTHER_ASSET_TYPES = [
+  { label: 'Workshop', key: 'workshop' },
+  { label: 'Book', key: 'book' },
+  { label: 'Byte', key: 'byte' },
+  { label: 'Brain Teaser', key: 'brain_teaser' },
+  { label: 'Current Affairs', key: 'current_affairs' }
+];
+
 const MappingPage = () => {
   const [userGroup, setUserGroup] = React.useState('');
   const [selectedGrades, setSelectedGrades] = React.useState([]);
@@ -24,6 +32,9 @@ const MappingPage = () => {
   const [courses, setCourses] = React.useState([]);
   const [selectedCategoryId, setSelectedCategoryId] = React.useState('');
   const [selectedAssets, setSelectedAssets] = React.useState([]);
+  const [otherAssetLists, setOtherAssetLists] = React.useState({ workshop: [], book: [], byte: [], brain_teaser: [], current_affairs: [] });
+  const [otherAssetSelected, setOtherAssetSelected] = React.useState({ workshop: [], book: [], byte: [], brain_teaser: [], current_affairs: [] });
+  const [otherAssetTypeChecked, setOtherAssetTypeChecked] = React.useState({ workshop: false, book: false, byte: false, brain_teaser: false, current_affairs: false });
   const [userCount, setUserCount] = React.useState(null);
   const [userCountLoading, setUserCountLoading] = React.useState(false);
   const [previewUserCount, setPreviewUserCount] = React.useState(null);
@@ -72,6 +83,22 @@ const MappingPage = () => {
       setCourses(allCourses);
       setGradesList(xanoGrades);
       setSchoolsList(Array.isArray(xanoSchools) ? xanoSchools : []);
+    });
+  }, []);
+
+  React.useEffect(() => {
+    const toItems = (data) => {
+      const arr = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
+      return arr.map((x, i) => ({ id: x.id ?? x.documentId ?? String(i), name: x.name ?? x.title ?? x.attributes?.title ?? `Item ${i + 1}` }));
+    };
+    Promise.all([
+      fetch('/api/mapping-control/xano/other-assets?type=workshop', { credentials: 'include' }).then(r => r.ok ? r.json() : []).then(d => (Array.isArray(d) ? d : toItems(d)).map(x => ({ id: x.id, name: x.title ?? x.name }))).catch(() => []),
+      fetch('/api/mapping-control/xano/other-assets?type=book', { credentials: 'include' }).then(r => r.ok ? r.json() : []).then(d => (Array.isArray(d) ? d : toItems(d)).map(x => ({ id: x.id, name: x.title ?? x.name }))).catch(() => []),
+      fetch('/api/mapping-control/xano/other-assets?type=byte', { credentials: 'include' }).then(r => r.ok ? r.json() : []).then(d => (Array.isArray(d) ? d : toItems(d)).map(x => ({ id: x.id, name: x.title ?? x.name }))).catch(() => []),
+      fetch('/api/mapping-control/xano/other-assets?type=brain_teaser', { credentials: 'include' }).then(r => r.ok ? r.json() : []).then(d => (Array.isArray(d) ? d : toItems(d)).map(x => ({ id: x.id, name: x.title ?? x.name }))).catch(() => []),
+      fetch('/api/mapping-control/xano/other-assets?type=current_affairs', { credentials: 'include' }).then(r => r.ok ? r.json() : []).then(d => (Array.isArray(d) ? d : toItems(d)).map(x => ({ id: x.id, name: x.title ?? x.name }))).catch(() => [])
+    ]).then(([workshop, book, byte, brain_teaser, current_affairs]) => {
+      setOtherAssetLists(prev => ({ ...prev, workshop, book, byte, brain_teaser, current_affairs }));
     });
   }, []);
 
@@ -184,19 +211,54 @@ const MappingPage = () => {
     );
   };
 
+  const addOtherAsset = (key, item) => {
+    setOtherAssetSelected(prev => {
+      const list = prev[key] || [];
+      if (list.some(x => (x.id != null && x.id === item.id) || x.name === item.name)) return prev;
+      return { ...prev, [key]: [...list, item] };
+    });
+  };
+
+  const removeOtherAsset = (key, idOrName) => {
+    setOtherAssetSelected(prev => ({
+      ...prev,
+      [key]: (prev[key] || []).filter(x => x.id !== idOrName && x.name !== idOrName)
+    }));
+  };
+
   const removeAsset = (name) => {
     setSelectedAssets(prev => prev.filter(a => a !== name));
   };
+
+  const removeAssetTag = (item) => {
+    if (item.type === 'course') {
+      setSelectedAssets(prev => prev.filter(a => a !== item.name));
+    } else {
+      removeOtherAsset(item.type, item.id != null ? item.id : item.name);
+    }
+  };
+
+  const allSelectedForDisplay = React.useMemo(() => {
+    const courseTags = selectedAssets.map(name => ({ type: 'course', name }));
+    const otherTags = Object.entries(otherAssetSelected).flatMap(([type, arr]) =>
+      (arr || []).map(({ id, name }) => ({ type, id, name }))
+    );
+    return [...courseTags, ...otherTags];
+  }, [selectedAssets, otherAssetSelected]);
 
   const confirm = async () => {
     const gradeVal = selectedGrades.length === 1 ? (Number(selectedGrades[0]) || selectedGrades[0]) : null;
     const schoolVal = userGroup === 'school' ? (selectedSchools.length > 0 ? selectedSchools.join(',') : null) : null;
     const coursesInCategory = selectedCategoryId ? (coursesByCategory[selectedCategoryId] || []) : [];
-    const assets = selectedAssets.map((name) => {
+    const courseAssets = selectedAssets.map((name) => {
       const c = coursesInCategory.find((x) => getCourseTitle(x) === name) || courses.find((x) => getCourseTitle(x) === name);
       const id = c ? getCourseId(c) : null;
       return { type: 'course', id: id != null ? id : name, name };
     });
+    const otherAssets = Object.entries(otherAssetSelected).flatMap(([type, list]) =>
+      (list || []).map(({ id, name }) => ({ type, id: id != null ? id : name, name }))
+    );
+    const assets = [...courseAssets, ...otherAssets];
 
     const body = {
       audience: {
@@ -238,14 +300,20 @@ const MappingPage = () => {
 
   const coursesInSelectedCategory = selectedCategoryId ? (coursesByCategory[selectedCategoryId] || []) : [];
   const courseTitlesInCategory = coursesInSelectedCategory.map(c => getCourseTitle(c));
-  const selectedCourseTitles = selectedAssets.filter(a => courseTitlesInCategory.includes(a));
 
-  const onCourseMultiChange = (e) => {
-    const selected = Array.from(e.target.selectedOptions).map(o => o.value);
-    setSelectedAssets(prev => [
-      ...prev.filter(a => !courseTitlesInCategory.includes(a)),
-      ...selected
-    ]);
+  const toggleCourseInCategory = (title) => {
+    setSelectedAssets(prev =>
+      prev.includes(title) ? prev.filter(a => a !== title) : [...prev, title]
+    );
+  };
+
+  const coursesInCategorySelectAll = () => {
+    const inCat = courseTitlesInCategory;
+    setSelectedAssets(prev => {
+      const allSelected = inCat.length > 0 && inCat.every(t => prev.includes(t));
+      if (allSelected) return prev.filter(x => !inCat.includes(x));
+      return [...new Set([...prev, ...inCat])];
+    });
   };
 
   const dropdownStyle = {
@@ -396,8 +464,8 @@ const MappingPage = () => {
             React.createElement('option', { value: 'school' }, 'Select School'),
           )
         ),
-        userGroup !== 'school' && userGroup !== '' && React.createElement('div', { style: { flex: 1, minWidth: 200, position: 'relative' }, ref: gradesRef },
-          React.createElement('label', { style: labelStyle }, 'Select Grades'),
+        userGroup !== '' && React.createElement('div', { style: { flex: 1, minWidth: 200, position: 'relative' }, ref: gradesRef },
+          React.createElement('label', { style: labelStyle }, userGroup === 'school' ? 'Select Grades (optional)' : 'Select Grades'),
           React.createElement('div',
             {
               style: triggerStyle,
@@ -423,14 +491,14 @@ const MappingPage = () => {
           )
         ),
         userGroup === 'school' && React.createElement('div', { style: { flex: 1, minWidth: 200, position: 'relative' }, ref: schoolsRef },
-          React.createElement('label', { style: labelStyle }, 'Select Schools'),
+          React.createElement('label', { style: labelStyle }, 'Select School(s)'),
           React.createElement('div',
             {
               style: triggerStyle,
               onClick: () => setSchoolsOpen(!schoolsOpen),
               'aria-expanded': schoolsOpen
             },
-            React.createElement('span', null, selectedSchools.length === 0 ? 'All Schools' : selectedSchools.length === schoolsList.length ? 'All Schools' : selectedSchools.length + ' school(s) selected'),
+            React.createElement('span', null, selectedSchools.length === 0 ? 'Select school(s)' : selectedSchools.length === schoolsList.length ? 'All Schools' : selectedSchools.length === 1 ? getSchoolName(schoolsList.find(s => getSchoolId(s) === selectedSchools[0])) : selectedSchools.length + ' school(s) selected'),
             React.createElement('span', { style: { fontSize: 12 } }, schoolsOpen ? '▲' : '▼')
           ),
           schoolsOpen && React.createElement('div', { style: panelStyle },
@@ -471,42 +539,100 @@ const MappingPage = () => {
         ),
         React.createElement('div', { style: { width: '48%', boxSizing: 'border-box', minWidth: 0 } },
           React.createElement('label', { style: labelStyle }, 'Course'),
-          React.createElement('select', {
-            multiple: true,
-            style: { ...courseSelectStyle, cursor: 'pointer' },
-            value: selectedCourseTitles,
-            onChange: onCourseMultiChange,
-            disabled: !selectedCategoryId,
-            title: !selectedCategoryId ? 'Select a category first' : '-- Select Course --'
+          React.createElement('div', {
+            style: {
+              ...courseSelectStyle,
+              minHeight: 120,
+              overflowY: 'auto',
+              padding: 8,
+              cursor: selectedCategoryId ? 'default' : 'not-allowed',
+              opacity: selectedCategoryId ? 1 : 0.6,
+              pointerEvents: selectedCategoryId ? 'auto' : 'none'
+            }
           },
-            coursesInSelectedCategory.map(c =>
-              React.createElement('option', { key: c.id ?? c.documentId ?? getCourseTitle(c), value: getCourseTitle(c) }, getCourseTitle(c))
-            )
+            !selectedCategoryId
+              ? React.createElement('div', { style: { padding: 12, color: '#666687', fontSize: 14 } }, 'Select a category first')
+              : React.createElement(React.Fragment, null,
+                  React.createElement('label', { style: rowStyle },
+                    React.createElement('input', {
+                      type: 'checkbox',
+                      checked: courseTitlesInCategory.length > 0 && courseTitlesInCategory.every(t => selectedAssets.includes(t)),
+                      onChange: coursesInCategorySelectAll,
+                      style: checkboxStyle
+                    }),
+                    'Select All'
+                  ),
+                  coursesInSelectedCategory.map(c => {
+                    const title = getCourseTitle(c);
+                    return React.createElement('label', { key: c.id ?? c.documentId ?? title, style: rowStyle },
+                      React.createElement('input', {
+                        type: 'checkbox',
+                        checked: selectedAssets.includes(title),
+                        onChange: () => toggleCourseInCategory(title),
+                        style: checkboxStyle
+                      }),
+                      React.createElement('span', { style: { marginLeft: 8, color: '#32324d', fontSize: 14 } }, title)
+                    );
+                  })
+                )
           )
         )
       ),
       React.createElement('div', { style: { marginBottom: 24 } },
         React.createElement('span', { style: { ...mutedText, marginRight: 8 } }, 'Selected:'),
-        selectedAssets.length === 0
+        allSelectedForDisplay.length === 0
           ? React.createElement('span', { style: mutedText }, 'None')
-          : selectedAssets.map(name =>
-              React.createElement('span', { key: name, style: tagStyle },
-                name,
-                React.createElement('button', { type: 'button', style: tagRemoveStyle, onClick: () => removeAsset(name), 'aria-label': 'Remove' }, '✕')
+          : allSelectedForDisplay.map(item =>
+              React.createElement('span', {
+                key: item.type + ':' + (item.id != null ? item.id : item.name),
+                style: tagStyle
+              },
+                item.name,
+                React.createElement('button', { type: 'button', style: tagRemoveStyle, onClick: () => removeAssetTag(item), 'aria-label': 'Remove' }, '✕')
               )
             )
       ),
       React.createElement('p', { style: { ...mutedText, marginBottom: 16, fontSize: 14 } }, 'Other Assets'),
       React.createElement('div', { style: otherGridStyle },
-        ['Workshop', 'Book', 'Byte', 'Brain Teaser', 'Current Affairs'].map(a =>
-          React.createElement('label', { key: a, style: { ...checkboxLabelStyle, marginBottom: 12 } },
-            React.createElement('input', {
-              type: 'checkbox',
-              checked: selectedAssets.includes(a),
-              onChange: () => toggleAsset(a),
-              style: checkboxStyle
-            }),
-            a
+        OTHER_ASSET_TYPES.map(({ label, key }) =>
+          React.createElement('div', { key: key, style: { marginBottom: 12 } },
+            React.createElement('label', { style: { ...checkboxLabelStyle, marginBottom: 6 } },
+              React.createElement('input', {
+                type: 'checkbox',
+                checked: otherAssetTypeChecked[key] || (otherAssetSelected[key] || []).length > 0,
+                onChange: (e) => setOtherAssetTypeChecked(prev => ({ ...prev, [key]: e.target.checked })),
+                style: checkboxStyle
+              }),
+              label
+            ),
+            (otherAssetTypeChecked[key] || (otherAssetSelected[key] || []).length > 0) && React.createElement('div', { style: { marginTop: 6, marginLeft: 26 } },
+              React.createElement('select', {
+                multiple: false,
+                style: { ...dropdownStyle, height: 40, minWidth: 200, cursor: 'pointer', marginBottom: 6 },
+                value: '',
+                onChange: (e) => {
+                  const val = e.target.value;
+                  if (!val) return;
+                  const item = (otherAssetLists[key] || []).find(x => String(x.id) === val || x.name === val);
+                  if (item) addOtherAsset(key, item);
+                  e.target.value = '';
+                },
+                title: 'Select ' + label
+              },
+                React.createElement('option', { value: '' }, '-- Select ' + label + ' --'),
+                (otherAssetLists[key] || []).map(item =>
+                  React.createElement('option', { key: item.id ?? item.name, value: item.id ?? item.name }, item.name)
+                )
+              ),
+              (otherAssetSelected[key] || []).length > 0 && React.createElement('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
+                (otherAssetSelected[key] || []).map(item =>
+                  React.createElement('span', { key: item.id ?? item.name, style: tagStyle },
+                    item.name,
+                    React.createElement('button', { type: 'button', style: tagRemoveStyle, onClick: () => removeOtherAsset(key, item.id != null ? item.id : item.name), 'aria-label': 'Remove' }, '✕')
+                  )
+                )
+              )
+            )
           )
         )
       )
@@ -526,10 +652,10 @@ const MappingPage = () => {
         })()),
         React.createElement('p', { style: { marginBottom: 12, fontWeight: 600 } }, 'Total Users: ', previewUserCountLoading ? '…' : (previewUserCount !== null ? String(previewUserCount) : '—')),
         React.createElement('p', { style: { marginBottom: 6, fontWeight: 600 } }, 'Assets to be Assigned:'),
-        selectedAssets.length === 0
+        allSelectedForDisplay.length === 0
           ? React.createElement('p', { style: { margin: 0, paddingLeft: 16, color: '#666687' } }, 'None selected')
           : React.createElement('ul', { style: { margin: 0, paddingLeft: 20 } },
-              selectedAssets.map(name => React.createElement('li', { key: name, style: { marginBottom: 4 } }, name))
+              allSelectedForDisplay.map(item => React.createElement('li', { key: (item.type + ':' + (item.id ?? item.name)), style: { marginBottom: 4 } }, item.name + (item.type !== 'course' ? ' (' + item.type + ')' : '')))
             )
       ),
       success && React.createElement('p', { style: successText }, 'Mapping saved successfully.'),

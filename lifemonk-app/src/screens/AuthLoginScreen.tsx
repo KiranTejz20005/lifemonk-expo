@@ -41,14 +41,18 @@ export function AuthLoginScreen({ onLoginSuccess, onGoToSignup }: Props) {
     try {
       const result = await studentLogin(email.trim(), password);
       console.log('Login success:', result.user?.name ?? result.user?.email);
+      const uid = result.user?.id ?? result.id;
+      const validId = uid != null && Number(uid) > 0 ? String(uid) : '';
       await saveSession(
         result.authToken,
-        String(result.user?.id ?? result.id ?? ''),
-        result.user?.name,
+        validId,
+        result.user?.name ?? result?.name,
         rememberMe
       );
+      if (validId) {
+        await SecureStore.setItemAsync('user_id', validId);
+      }
       await SecureStore.setItemAsync('user_name', String(result?.user?.name || result?.name || 'User'));
-      await SecureStore.setItemAsync('user_id', String(result?.user?.id || result?.id || ''));
       onLoginSuccess();
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Login failed';

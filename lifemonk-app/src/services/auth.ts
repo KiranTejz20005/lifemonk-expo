@@ -5,7 +5,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
-import { getXanoAuthBaseUrl } from './config';
+import { getXanoAuthBaseUrl, getXanoBaseUrl } from './config';
 
 // Simple auth state listener for logout events
 type AuthListener = () => void;
@@ -85,9 +85,10 @@ export async function login(email: string, password: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
-  const json = await res.json();
+  const json = (await res.json()) as { authToken?: string; id?: number; name?: string; message?: string };
   if (!res.ok) throw new Error(json.message || 'Login failed');
-  await SecureStore.setItemAsync('auth_token', String(json.authToken));
+  const uid = json.id != null && Number(json.id) > 0 ? String(json.id) : '';
+  await saveSession(json.authToken!, uid, json.name);
   return json;
 }
 
@@ -101,7 +102,10 @@ export async function saveSession(
 ) {
   await AsyncStorage.setItem('lifemonk_auth_token', String(token));
   await SecureStore.setItemAsync('auth_token', String(token));
-  await SecureStore.setItemAsync('user_id', String(userId));
+  const uid = String(userId ?? '').trim();
+  if (uid && uid !== '0' && !Number.isNaN(parseInt(uid, 10))) {
+    await SecureStore.setItemAsync('user_id', uid);
+  }
   if (name) await SecureStore.setItemAsync('user_name', String(name));
   if (rememberMe) {
     await SecureStore.deleteItemAsync(SESSION_ONLY_KEY);
@@ -120,6 +124,37 @@ export async function getUserId(): Promise<string | null> {
   return await SecureStore.getItemAsync('user_id');
 }
 
+/**
+ * When we have a token but no stored user_id, call auth/me (trying auth base then courses base)
+ * and persist user_id so getUserId() and getCurrentStudent() work. Returns the resolved id or null.
+ */
+export async function fetchAndPersistUserIdFromAuthMe(): Promise<number | null> {
+  const token = await getToken();
+  if (!token) return null;
+  const authBase = getXanoAuthBaseUrl();
+  const coursesBase = getXanoBaseUrl();
+  const bases = authBase ? [authBase, coursesBase] : [coursesBase];
+  for (const base of bases) {
+    if (!base?.trim()) continue;
+    try {
+      const url = base.replace(/\/$/, '') + '/auth/me';
+      const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+      if (!res.ok) continue;
+      const json = (await res.json()) as { id?: number };
+      const id = json?.id != null ? Number(json.id) : 0;
+      if (id > 0) {
+        await SecureStore.setItemAsync('user_id', String(id));
+        const name = (json as { name?: string }).name;
+        if (name) await SecureStore.setItemAsync('user_name', String(name));
+        return id;
+      }
+    } catch {
+      // try next base
+    }
+  }
+  return null;
+}
+
 export async function getUserName(): Promise<string | null> {
   return await SecureStore.getItemAsync('user_name');
 }
@@ -135,14 +170,22 @@ export async function getCurrentStudent(): Promise<{
     const token = await getToken();
     if (!token) return null;
 
-    const base = getXanoAuthBaseUrl();
-    const res = await fetch(base + '/auth/me', {
-      headers: { Authorization: 'Bearer ' + token },
-    });
-
-    if (!res.ok) return null;
-    const json = await res.json();
-    return json;
+    const authBase = getXanoAuthBaseUrl();
+    const coursesBase = getXanoBaseUrl();
+    const bases = authBase ? [authBase, coursesBase] : [coursesBase];
+    for (const base of bases) {
+      if (!base?.trim()) continue;
+      try {
+        const url = base.replace(/\/$/, '') + '/auth/me';
+        const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+        if (!res.ok) continue;
+        const json = await res.json();
+        if (json?.id != null) return json;
+      } catch {
+        // try next base
+      }
+    }
+    return null;
   } catch {
     return null;
   }

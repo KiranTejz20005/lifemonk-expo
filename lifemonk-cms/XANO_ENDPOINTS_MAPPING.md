@@ -16,7 +16,8 @@ This document compares what the Strapi CMS (lifemonk) codebase expects from Xano
 | Course Mapping – Category dropdown | `get_all_categories` or `get_all_courses` | **Added** in my-workspace | **OK** – Strapi derives categories from courses if needed |
 | Course Mapping, lifecycles | `sync_course` | `sync_course` (#3592157 / #3595081) | **OK** |
 | xano-sync service (course/chapter publish) | `course`, `course/:id`, `chapter`, `chapter/:id`, `course_grade` | Not in API list (may be REST/CRUD in another group) | **Note** – see “Other” below |
-| lifemonk-app (mobile) | `get_course_progress` | You have `get_user_courses` | **Note** – different name; confirm if same purpose |
+| lifemonk-app (mobile) | `get_user_entitled_content` | **Primary** – app must use this only for main content (not `get_user_courses` / `get_all_courses`) | **OK** – in courses API group |
+| lifemonk-app (mobile) | `get_course_progress` | Optional for progress; do not use for catalog | **Note** – see “Mobile” below |
 
 ---
 
@@ -148,3 +149,16 @@ Mapping Control "2. Select Assets" shows a **Category** dropdown and then **Cour
 - **GET** `/api/mapping-control/xano/courses` – returns all courses (for filtering by category in the UI). The plugin calls `get_all_courses` or `course` / `courses`.
 
 **In Xano (courses API group):** Ensure you have an endpoint that returns all courses with at least `id`, `title`, and `category`. A sample is in `my-workspace/api/courses/get_all_courses_GET.xs`. Deploy it to your **courses** API group, then set `XANO_COURSES_BASE_URL` in Strapi `.env` to that group’s base URL (e.g. `https://your-instance.n7.xano.io/api:COURSES_GROUP_ID`). If you use a single API group for both members and courses, `XANO_BASE_URL` is enough.
+
+---
+
+## Base URLs (avoid 404s)
+
+| Env variable | Used by | Endpoints (exact path, no trailing slash) |
+|-------------|--------|------------------------------------------|
+| `XANO_COURSES_BASE_URL` | Strapi mapping-control, xano-sync | `get_all_courses`, `upsert_entitlement`, `sync_course`, catalog |
+| `XANO_MEMBERS_BASE_URL` | Strapi mapping-control | `get_all_schools`, `get_all_grades`, `get_all_users` |
+| Same as courses base (app) | lifemonk-app | `get_user_entitled_content?student_id=...` (main content only) |
+
+- **Strapi** never provides runtime course data to the app; Xano is the single API for mobile.
+- **Mobile** must call only `get_user_entitled_content` for the main content list (no `get_all_courses`, no client-side filtering by grade/subscription).
